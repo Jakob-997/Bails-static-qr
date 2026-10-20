@@ -49,7 +49,8 @@ they are forwarded to `bitcoin-cli`.
 
 1. Copy an unsigned or signed PSBT as text from Bitcoin Core.
 
-2. Choose **Send PSBT**, paste the text into the box, and click **OK**. Core checks that it decodes.
+2. Choose **Send PSBT**, paste the text into the large text box, and click **Show QR**.
+   Core checks that it decodes. Line breaks and surrounding whitespace are accepted.
    The static QR contains its Base64 representation, which Sparrow can scan.
 
 3. On the other computer, choose **Receive PSBT**. Core checks that the transaction

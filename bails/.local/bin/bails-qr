@@ -55,7 +55,7 @@ def wallet_name():
 
 def psbt_bytes(data):
     if not data.startswith(b"psbt\xff"):
-        data = base64.b64decode(data.strip(), validate=True)
+        data = base64.b64decode(b"".join(data.split()), validate=True)
     if len(data) > MAX_FILE:
         raise ValueError("The PSBT is larger than 1 MiB. Use file transfer.")
     rpc("decodepsbt", data=base64.b64encode(data) + b"\n")
@@ -121,7 +121,7 @@ def scan(kind):
         scroll.add(text)
         notice = Gtk.MessageDialog(message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.CLOSE,
                                    text="Select Copy. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
-        copy = Gtk.Button(label="Copy")
+        copy = Gtk.Button(label="Copy", margin_top=12, margin_bottom=6)
         copy.connect("clicked", lambda _: (buffer.select_range(*buffer.get_bounds()), buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))))
         notice.get_content_area().pack_start(copy, False, False, 0)
         notice.get_content_area().pack_start(scroll, True, True, 0)
@@ -168,7 +168,7 @@ def main():
                 if action in ("Verify Receiving Address", "Receive PSBT", "Import Watch-Only Wallet"):
                     scan(action)
                 elif action == "Send PSBT":
-                    data = psbt_bytes(dialog("--entry", "--title=Send PSBT", "--text=Paste the PSBT text copied from Bitcoin Core.").encode("ascii"))
+                    data = psbt_bytes(dialog("--text-info", "--editable", "--filename=/dev/null", "--width=600", "--height=300", "--title=Send PSBT: paste text copied from Bitcoin Core", "--ok-label=Show QR").encode("ascii"))
                     show(base64.b64encode(data), data, "transaction.psbt", directory)
                 elif action == "Export Watch-Only Wallet":
                     export = rpc("listdescriptors", "false", wallet=wallet_name())

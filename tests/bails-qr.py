@@ -90,7 +90,9 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr, "rpc", return_value={}) as rpc, \
                 patch.object(qr, "show") as show, self.assertRaises(qr.Cancelled):
             qr.main()
-        self.assertIn("--entry", dialog.call_args_list[1].args)
+        self.assertIn("--text-info", dialog.call_args_list[1].args)
+        self.assertIn("--editable", dialog.call_args_list[1].args)
+        self.assertIn("--width=600", dialog.call_args_list[1].args)
         rpc.assert_called_once_with("decodepsbt", data=encoded + b"\n")
         self.assertEqual(show.call_args.args[:3], (encoded, PSBT, "transaction.psbt"))
 
@@ -98,6 +100,11 @@ class StaticQRTests(unittest.TestCase):
         with patch.object(qr, "rpc") as rpc, self.assertRaisesRegex(ValueError, "larger than 1 MiB"):
             qr.psbt_bytes(base64.b64encode(PSBT + b"x" * qr.MAX_FILE))
         rpc.assert_not_called()
+
+    def test_multiline_psbt_paste(self):
+        encoded = base64.b64encode(PSBT)
+        with patch.object(qr, "rpc"):
+            self.assertEqual(qr.psbt_bytes(encoded[:32] + b"\n" + encoded[32:] + b"\n"), PSBT)
 
     def test_compressed_wallet_image_roundtrip(self):
         original = json.dumps(EXPORT).encode()
