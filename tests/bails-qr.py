@@ -383,9 +383,35 @@ class StaticQRTests(unittest.TestCase):
         self.assertEqual(retried[0]["next_index"], 12)
         self.assertEqual(rpc.call_count, 4)
 
-    def test_range_conflict_retry_failure_is_reported(self):
+    def test_range_retry_only_retries_failed_descriptor_without_rewinding(self):
+        first = dict(DESCRIPTORS[0], desc="other-public-descriptor")
+        failed = dict(DESCRIPTORS[0], range=[2, 1100], next_index=20)
+        current = dict(failed, range=[0, 1004], next_index=12)
+        export = dict(EXPORT, descriptors=[first, failed], labels={"address": "Savings"})
         failure = {"success": False, "error": {"message": "new range must include current range"}}
-        with patch.object(qr, "run", return_value=json.dumps(EXPORT).encode()), \
+        with patch.object(qr, "run", return_value=json.dumps(export).encode()), \
+                patch.object(qr, "dialog"), \
+                patch.object(qr, "rpc", side_effect=[{}, [{"success": True}, failure], {"descriptors": [current]}, [{"success": True}], None]) as rpc:
+            qr.scan("Import Watch-Only Wallet")
+        self.assertEqual(json.loads(rpc.call_args_list[3].kwargs["data"]),
+                         [dict(failed, range=[0, 1100], next_index=20)])
+        self.assertEqual(rpc.call_args.args, ("setlabel", "address", "Savings"))
+
+    def test_scan_failure_returns_to_menu_with_visible_error(self):
+        for error in (ValueError("Invalid QR payload"), subprocess.TimeoutExpired("zbarcam", 180)):
+            temporary = tempfile.TemporaryDirectory
+            with patch.object(qr.shutil, "which", return_value="available"), \
+                    patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
+                    patch.object(qr, "dialog", side_effect=["Receive PSBT", "", qr.Cancelled]) as dialog, \
+                    patch.object(qr, "scan", side_effect=error), self.assertRaises(qr.Cancelled):
+                qr.main()
+            self.assertEqual(dialog.call_args_list[1].args, ("--error", f"--text={error}"))
+            self.assertEqual(dialog.call_args_list[0].args, dialog.call_args_list[2].args)
+
+    def test_range_conflict_retry_failure_is_reported(self):
+        export = dict(EXPORT, labels={"address": "Savings"})
+        failure = {"success": False, "error": {"message": "new range must include current range"}}
+        with patch.object(qr, "run", return_value=json.dumps(export).encode()), \
                 patch.object(qr, "dialog") as dialog, \
                 patch.object(qr, "rpc", side_effect=[{}, [failure], {"descriptors": DESCRIPTORS}, [failure]]) as rpc, \
                 self.assertRaisesRegex(ValueError, "incomplete"):
