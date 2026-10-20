@@ -51,7 +51,8 @@ they are forwarded to `bitcoin-cli`.
 
 2. Choose **Send PSBT**, paste the text into the large text box, and click **Show QR**.
    Core checks that it decodes. Line breaks and surrounding whitespace are accepted.
-   The static QR contains its Base64 representation, which Sparrow can scan.
+   The tool decodes the Base64 and sends binary bytes, using maximum-level gzip
+   compression when it makes the payload smaller. No transaction fields are removed.
 
 3. On the other computer, choose **Receive PSBT**. Core checks that the transaction
    decodes, then the tool shows its Base64 text. Click **Copy** above the text, or select the
@@ -62,9 +63,11 @@ they are forwarded to `bitcoin-cli`.
    **Copy** leaves the text window open. **Close** exits immediately; the tool
    never waits for Core or for a confirmation that the PSBT was loaded.
 
-Scanning also accepts the gzip-compressed PSBT format in the manual
-[CryoStick instructions](CRYOSTICK.md). It does not accept Sparrow's UR or
-BBQr QR exports; copy the PSBT as Base64 text in Sparrow for the return trip.
+Use this tool on both computers for compressed PSBT QRs. Sparrow cannot directly
+scan this gzip transport format; use PSBT text or files to exchange with Sparrow.
+Scanning still accepts ordinary Base64 PSBT QRs and the gzip-compressed PSBT
+format in the manual [CryoStick instructions](CRYOSTICK.md). It does not accept
+UR or BBQr QR exports.
 
 ## Check a receive address
 
@@ -81,9 +84,11 @@ and other parameters are not used.
 ## Transfer files when a QR is too large or no camera is available
 
 A binary QR can hold at most 2,953 bytes at the lowest error correction level.
-Descriptor transfers use compressed bytes; PSBT transfers use Base64 text, which
-leaves room for at most 2,214 PSBT bytes. Real cameras may not read the densest
-codes reliably. Descriptor sets can exceed these limits even with compression.
+Both transfer types share the same compression path: gzip level 9 with a fixed
+timestamp, or raw bytes when they are smaller. Descriptor JSON omits formatting
+spaces and uses UTF-8 directly; empty address labels are omitted. PNG compression
+does not affect QR payload capacity. Real cameras may not read the densest codes
+reliably. Transfers can exceed the limit even with compression.
 
 If a transfer is too large, the tool offers to save the original file.
 Use a new filename. To transfer without a camera:

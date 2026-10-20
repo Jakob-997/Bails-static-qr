@@ -4,9 +4,9 @@ import base64
 import gzip
 import importlib.machinery
 import importlib.util
-import io
 import json
 from pathlib import Path
+import random
 import subprocess
 import sys
 import tempfile
@@ -63,13 +63,13 @@ class StaticQRTests(unittest.TestCase):
                 return base64.b64decode(buffer.set_text.call_args.args[0])
             return save.call_args.args
 
-    def show(self, payload, original, name):
+    def show(self, data, name):
         def command(*args, **kwargs):
             if args[0] == "python3-qr":
                 return subprocess.check_output([sys.executable, "-m", "qrcode.console_scripts", *args[1:]], **kwargs)
             return b""
         with patch.object(qr, "run", side_effect=command) as run, patch.object(qr, "dialog") as dialog:
-            qr.show(payload, original, name, self.directory)
+            qr.show(data, name, self.directory)
             dialog.assert_not_called()
             self.assertEqual(run.call_args.args[0], "xdg-open")
             return Path(run.call_args.args[1])
@@ -94,7 +94,7 @@ class StaticQRTests(unittest.TestCase):
         self.assertIn("--editable", dialog.call_args_list[1].args)
         self.assertIn("--width=600", dialog.call_args_list[1].args)
         rpc.assert_called_once_with("decodepsbt", data=encoded + b"\n")
-        self.assertEqual(show.call_args.args[:3], (encoded, PSBT, "transaction.psbt"))
+        self.assertEqual(show.call_args.args[:2], (PSBT, "transaction.psbt"))
 
     def test_oversized_pasted_psbt_does_not_reach_core(self):
         with patch.object(qr, "rpc") as rpc, self.assertRaisesRegex(ValueError, "larger than 1 MiB"):
@@ -109,7 +109,7 @@ class StaticQRTests(unittest.TestCase):
     def test_compressed_wallet_image_roundtrip(self):
         original = json.dumps(EXPORT).encode()
         payload = gzip.compress(original, mtime=0)
-        image = self.show(payload, original, "descriptors.json")
+        image = self.show(original, "descriptors.json")
         result = zxingcpp.read_barcode(Image.open(image))
         self.assertIsNotNone(result)
         self.assertEqual(result.bytes, payload)
@@ -122,17 +122,28 @@ class StaticQRTests(unittest.TestCase):
         self.assertEqual(rpc.call_args.kwargs["wallet"], "[Watch-only] signing")
         dialog.assert_called_once()
 
-    def test_base64_psbt_image_roundtrip(self):
-        encoded = base64.b64encode(PSBT)
-        image = self.show(encoded, PSBT, "transaction.psbt")
+    def test_compressed_psbt_image_roundtrip(self):
+        image = self.show(PSBT, "transaction.psbt")
         result = zxingcpp.read_barcode(Image.open(image))
-        self.assertEqual(result.bytes, encoded)
+        self.assertEqual(result.bytes, gzip.compress(PSBT, compresslevel=9, mtime=0))
         self.assertEqual(self.scan(result.bytes), PSBT)
+
+    def test_small_payload_stays_raw_when_gzip_is_larger(self):
+        payload = b"psbt\xffx"
+        result = zxingcpp.read_barcode(Image.open(self.show(payload, "transaction.psbt")))
+        self.assertEqual(result.bytes, payload)
+
+    def test_large_compressible_payload_fits_without_file_fallback(self):
+        payload = b"psbt\xff" + b"repeated metadata" * 1000
+        result = zxingcpp.read_barcode(Image.open(self.show(payload, "transaction.psbt")))
+        self.assertLess(len(result.bytes), 2953)
+        self.assertEqual(gzip.decompress(result.bytes), payload)
 
     def test_size_limits_and_file_fallback(self):
         with patch.object(qr, "save") as save, patch.object(qr, "dialog"), patch.object(qr, "run") as run:
-            qr.show(b"x" * 2954, PSBT, "transaction.psbt", self.directory)
-            save.assert_called_once_with(PSBT, "transaction.psbt")
+            payload = random.Random(0).randbytes(2954)
+            qr.show(payload, "transaction.psbt", self.directory)
+            save.assert_called_once_with(payload, "transaction.psbt")
             run.assert_not_called()
         with self.assertRaises(ValueError):
             self.scan(gzip.compress(b"x" * (qr.MAX_FILE + 1)))
@@ -140,8 +151,8 @@ class StaticQRTests(unittest.TestCase):
             self.scan(b"x" * 2954)
 
     def test_largest_binary_static_qr(self):
-        payload = bytes((i * 73 + 19) % 256 for i in range(2953))
-        image = self.show(payload, payload, "wallet.dat")
+        payload = random.Random(0).randbytes(2953)
+        image = self.show(payload, "wallet.dat")
         result = zxingcpp.read_barcode(Image.open(image))
         self.assertIsNotNone(result)
         self.assertEqual(result.bytes, payload)
@@ -155,12 +166,12 @@ class StaticQRTests(unittest.TestCase):
     def test_generated_images_decode_at_various_payload_sizes(self):
         for size in (100, 700, 1500, 2953):
             payload = bytes((i * 73 + 19) % 256 for i in range(size))
-            image = Image.open(self.show(payload, payload, "wallet.dat"))
+            image = Image.open(self.show(payload, "wallet.dat"))
             self.assertEqual(image.width, image.height)
             self.assertEqual(set(image.convert("L").tobytes()), {0, 255})
             result = zxingcpp.read_barcode(image)
             self.assertIsNotNone(result)
-            self.assertEqual(result.bytes, payload)
+            self.assertEqual(gzip.decompress(result.bytes) if result.bytes.startswith(b"\x1f\x8b") else result.bytes, payload)
 
     def test_core_validates_psbt_and_receives_options(self):
         with patch.object(qr, "run", return_value=b"{}") as run:
@@ -318,8 +329,7 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr, "rpc", side_effect=[dict(EXPORT), ["", "Savings"], {"test-address": {"purpose": "receive"}}]) as rpc, patch.object(qr, "show") as show:
             with self.assertRaises(qr.Cancelled):
                 qr.main()
-            self.assertEqual(gzip.decompress(show.call_args.args[0]), show.call_args.args[1])
-            self.assertEqual(json.loads(show.call_args.args[1]), dict(EXPORT, labels={"test-address": "Savings"}))
+            self.assertEqual(json.loads(show.call_args.args[0]), dict(EXPORT, labels={"test-address": "Savings"}))
             self.assertEqual(rpc.call_args_list[0].args, ("listdescriptors", "false"))
             self.assertEqual(rpc.call_args_list[2].args, ("getaddressesbylabel", "Savings"))
             self.assertEqual(rpc.call_count, 3)
