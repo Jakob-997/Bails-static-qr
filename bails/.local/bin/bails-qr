@@ -1,0 +1,194 @@
+#!/usr/bin/python3
+# Copyright (c) 2026 Bails contributors
+# Distributed under the MIT license; see LICENSE.
+"""Static QR transfers; Bitcoin Core owns wallet export and transaction review."""
+import base64
+import gzip
+import io
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from urllib.parse import unquote, urlsplit
+import zlib
+
+MAX_FILE = 1024 * 1024
+CORE_ARGS = sys.argv[1:]
+
+
+class Cancelled(Exception):
+    pass
+
+
+def run(*args, **kwargs):
+    return subprocess.run(args, capture_output=True, check=True, **kwargs).stdout
+
+
+def dialog(*args):
+    try:
+        return run("zenity", "--title=QR transfer", "--no-markup", *args).decode().rstrip("\n")
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 1:
+            raise Cancelled() from error
+        raise
+
+
+def rpc(method, *args, wallet=None, data=None):
+    options = [f"-rpcwallet={wallet}"] if wallet is not None else []
+    if data is not None:
+        options.append("-stdin")
+    return json.loads(run("bitcoin-cli", *CORE_ARGS, *options, method, *args, input=data))
+
+
+def wallet_name():
+    wallets = rpc("listwallets")
+    if not wallets:
+        raise ValueError("Open a wallet in Bitcoin Core first.")
+    rows = [value for i, name in enumerate(wallets) for value in (str(i), name.replace("\n", " "))]
+    choice = dialog("--list", "--text=Choose the loaded Bitcoin Core wallet.",
+                    "--column=ID", "--column=Wallet", "--hide-column=1", "--print-column=1", "--", *rows)
+    if not choice:
+        raise Cancelled()
+    return wallets[int(choice)]
+
+
+def read_file(path):
+    with open(path, "rb") as source:
+        data = source.read(MAX_FILE + 1)
+    if not data or len(data) > MAX_FILE:
+        raise ValueError("The file is empty or larger than 1 MiB. Use file transfer.")
+    return data
+
+
+def psbt_bytes(data):
+    if not data.startswith(b"psbt\xff"):
+        data = base64.b64decode(data.strip(), validate=True)
+    if len(data) > MAX_FILE:
+        raise ValueError("The PSBT is larger than 1 MiB. Use file transfer.")
+    rpc("decodepsbt", data=base64.b64encode(data) + b"\n")
+    return data
+
+
+def save(data, name):
+    target = dialog("--file-selection", "--save", f"--filename={name}",
+                    "--title=Save received or exported file (choose a new filename)")
+    with open(target, "xb") as output:
+        output.write(data)
+
+
+def show(data, original, name, directory):
+    if len(data) > 2953:
+        dialog("--info", "--text=This file is too large for one static QR. Save it for USB or microSD transfer.")
+        save(original, name)
+        return
+    with tempfile.NamedTemporaryFile(suffix=".png", dir=directory, delete=False) as image:
+        image.write(run("python3-qr", "--error-correction=L", input=data))
+    run("xdg-open", image.name)
+
+
+def scan(kind):
+    data = run("zbarcam", "--nodbus", "--raw", "-Sdisable", "-Sqrcode.enable",
+               "-Sbinary", "--oneshot", timeout=180)
+    if not data:
+        raise Cancelled()
+    # ZBar's raw oneshot mode returns exactly the payload, without a newline.
+    if len(data) > 2953:
+        raise ValueError("The QR payload exceeds the supported file size.")
+    if data.startswith(b"\x1f\x8b"):
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as source:
+            data = source.read(MAX_FILE + 1)
+        if len(data) > MAX_FILE:
+            raise ValueError("The decompressed file exceeds 1 MiB.")
+    if kind == "Import Watch-Only Wallet":
+        if not data.startswith(b"SQLite format 3\x00"):
+            raise ValueError("Expected a compressed wallet.dat QR.")
+        save(data, "watch-only.dat")
+        dialog("--info", "--text=In Bitcoin Core, choose File > Restore Wallet and select the saved wallet.dat file.")
+    elif kind == "Receive PSBT":
+        if not data.startswith((b"psbt\xff", b"cHNidP")):
+            raise ValueError("Expected a PSBT QR. Use Verify Receiving Address for receive addresses.")
+        import gi
+        gi.require_versions({"Gtk": "3.0", "Gdk": "3.0"})
+        from gi.repository import Gdk, Gtk
+        text = Gtk.TextView(editable=False, wrap_mode=Gtk.WrapMode.CHAR)
+        buffer = text.get_buffer()
+        buffer.set_text(base64.b64encode(psbt_bytes(data)).decode("ascii"))
+        scroll = Gtk.ScrolledWindow(min_content_width=500, min_content_height=150)
+        scroll.add(text)
+        notice = Gtk.MessageDialog(message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.CLOSE,
+                                   text="Copy the text below. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
+        notice.get_content_area().pack_start(scroll, True, True, 0)
+        notice.add_button("Copy", Gtk.ResponseType.APPLY)
+        notice.show_all()
+        while notice.run() == Gtk.ResponseType.APPLY:
+            buffer.select_range(*buffer.get_bounds())
+            buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
+        notice.destroy()
+    else:
+        address = data.decode("ascii", errors="replace").strip()
+        if address.lower().startswith("bitcoin:"):
+            address = unquote(urlsplit(address).path)
+        if not rpc("validateaddress", address)["isvalid"]:
+            raise ValueError("Expected a Bitcoin address or bitcoin: payment URI.")
+        if address.lower().startswith(("bc1", "tb1", "bcrt1")):
+            address = address.lower()
+        wallets = rpc("listwallets")
+        if not wallets:
+            raise ValueError("Open your wallet in Bitcoin Core, then scan the address again.")
+        if any(rpc("getaddressinfo", address, wallet=wallet).get("ismine") for wallet in wallets):
+            dialog("--info", "--title=Address confirmed", f"--text=You own this address.\n\n{address}")
+        else:
+            dialog("--warning", "--title=WARNING: Address not owned",
+                   f"--text=⚠ WARNING: You do not own this address.\n\n{address}\n\n"
+                   "None of your open Bitcoin Core wallets recognize this address.\n\n"
+                   "Check again carefully that you are requesting a receiving address from your "
+                   "watch-only wallet. If this address truly came from that wallet and this is not a mistake, "
+                   "the computer running it may be compromised. Do not send funds to this address.")
+
+
+def main():
+    for command in ("zenity", "bitcoin-cli", "zbarcam", "python3-qr", "xdg-open"):
+        if not shutil.which(command):
+            raise ValueError(f"Missing {command}. See docs/BITCOIN_QR.md for requirements.")
+    with tempfile.TemporaryDirectory(prefix="bails-qr-", dir="/tmp") as directory:
+        while True:
+            action = dialog("--list", "--column=Action", "Verify Receiving Address", "Receive PSBT", "Send PSBT", "Wallet Tools")
+            if not action:
+                return
+            try:
+                if action == "Wallet Tools":
+                    action = dialog("--list", "--title=Wallet Tools", "--column=Action",
+                                    "Export Watch-Only Wallet", "Import Watch-Only Wallet")
+                if action in ("Verify Receiving Address", "Receive PSBT", "Import Watch-Only Wallet"):
+                    scan(action)
+                elif action == "Send PSBT":
+                    data = psbt_bytes(dialog("--entry", "--title=Send PSBT", "--text=Paste the PSBT text copied from Bitcoin Core.").encode("ascii"))
+                    show(base64.b64encode(data), data, "transaction.psbt", directory)
+                elif action == "Export Watch-Only Wallet":
+                    wallet = wallet_name()
+                    path = Path(directory) / "watch-only.dat"
+                    path.unlink(missing_ok=True)
+                    rpc("exportwatchonlywallet", str(path), wallet=wallet)
+                    data = read_file(path)
+                    show(gzip.compress(data, compresslevel=9, mtime=0), data, "watch-only.dat", directory)
+            except Cancelled:
+                continue
+            except (OSError, ValueError, EOFError, zlib.error, subprocess.SubprocessError) as error:
+                detail = error.stderr.decode(errors="replace") if isinstance(error, subprocess.CalledProcessError) else str(error)
+                dialog("--error", f"--text={detail}")
+
+
+if __name__ == "__main__":
+    import os
+    os.umask(0o077)
+    try:
+        main()
+    except Cancelled:
+        pass
+    except (ImportError, OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"QR transfer: {error}", file=sys.stderr)
+        if shutil.which("zenity"):
+            subprocess.run(["zenity", "--error", "--no-markup", "--title=QR transfer", f"--text={error}"], check=False)
+        sys.exit(1)
