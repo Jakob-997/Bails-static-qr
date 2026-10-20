@@ -86,7 +86,7 @@ class StaticQRTests(unittest.TestCase):
         encoded = base64.b64encode(PSBT)
         with patch.object(qr.shutil, "which", return_value="available"), \
                 patch.object(qr.tempfile, "TemporaryDirectory", return_value=self.temporary), \
-                patch.object(qr, "dialog", side_effect=["Send PSBT", encoded.decode(), qr.Cancelled]) as dialog, \
+                patch.object(qr, "dialog", side_effect=["↑  Send PSBT", encoded.decode(), qr.Cancelled]) as dialog, \
                 patch.object(qr, "rpc", return_value={}) as rpc, \
                 patch.object(qr, "show") as show, self.assertRaises(qr.Cancelled):
             qr.main()
@@ -270,11 +270,11 @@ class StaticQRTests(unittest.TestCase):
     def test_import_wallet_menu_routes_to_scan(self):
         with patch.object(qr.shutil, "which", return_value="available"), \
                 patch.object(qr.tempfile, "TemporaryDirectory", return_value=self.temporary), \
-                patch.object(qr, "dialog", side_effect=["Wallet Tools", "Import Watch-Only Wallet", qr.Cancelled]) as dialog, \
+                patch.object(qr, "dialog", side_effect=["⚙  Wallet Tools", "↓  Import Watch-Only Wallet", qr.Cancelled]) as dialog, \
                 patch.object(qr, "scan") as scan, self.assertRaises(qr.Cancelled):
             qr.main()
         self.assertNotIn("Import Watch-Only Wallet", dialog.call_args_list[0].args)
-        self.assertIn("Import Watch-Only Wallet", dialog.call_args_list[1].args)
+        self.assertIn("↓  Import Watch-Only Wallet", dialog.call_args_list[1].args)
         scan.assert_called_once_with("Import Watch-Only Wallet")
 
     def test_address_and_psbt_have_separate_menu_actions(self):
@@ -282,11 +282,11 @@ class StaticQRTests(unittest.TestCase):
             temporary = tempfile.TemporaryDirectory
             with patch.object(qr.shutil, "which", return_value="available"), \
                     patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
-                    patch.object(qr, "dialog", side_effect=[action, qr.Cancelled]) as dialog, \
+                    patch.object(qr, "dialog", side_effect=[("✓  " if action == "Verify Receiving Address" else "↓  ") + action, qr.Cancelled]) as dialog, \
                     patch.object(qr, "scan") as scan, self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(dialog.call_args_list[0].args,
-                             ("--list", "--column=Action", "Verify Receiving Address", "Receive PSBT", "Send PSBT", "Wallet Tools"))
+                             ("--list", "--text=Choose an action.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools"))
             scan.assert_called_once_with(action)
 
     def test_receive_psbt_does_not_verify_an_address(self):
@@ -326,7 +326,7 @@ class StaticQRTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory
         with patch.object(qr.shutil, "which", return_value="available"), \
                 patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
-                patch.object(qr, "dialog", side_effect=["Wallet Tools", "Export Watch-Only Wallet", qr.Cancelled]), \
+                patch.object(qr, "dialog", side_effect=["⚙  Wallet Tools", "↑  Export Watch-Only Wallet", qr.Cancelled]), \
                 patch.object(qr, "wallet_name", return_value="signing"), \
                 patch.object(qr, "rpc", side_effect=[dict(EXPORT), ["", "Savings"], {"test-address": {"purpose": "receive"}}]) as rpc, patch.object(qr, "show") as show:
             with self.assertRaises(qr.Cancelled):

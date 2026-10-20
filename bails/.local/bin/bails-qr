@@ -132,7 +132,7 @@ def scan(kind):
         scroll = Gtk.ScrolledWindow(min_content_width=500, min_content_height=150)
         scroll.add(text)
         notice = Gtk.MessageDialog(message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.CLOSE,
-                                   text="Select Copy. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
+                                   text="Receive PSBT\n\nSelect Copy. In Bitcoin Core, select your wallet,\nthen choose File > Load PSBT from clipboard.")
         copy = Gtk.Button(label="Copy", margin_top=12, margin_bottom=6)
         copy.connect("clicked", lambda _: (buffer.select_range(*buffer.get_bounds()), buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))))
         notice.get_content_area().pack_start(copy, False, False, 0)
@@ -170,13 +170,13 @@ def main():
             raise ValueError(f"Missing {command}. See docs/BITCOIN_QR.md for requirements.")
     with tempfile.TemporaryDirectory(prefix="bails-qr-", dir="/tmp") as directory:
         while True:
-            action = dialog("--list", "--column=Action", "Verify Receiving Address", "Receive PSBT", "Send PSBT", "Wallet Tools")
+            action = dialog("--list", "--text=Choose an action.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools").split("  ", 1)[-1]
             if not action:
                 return
             try:
                 if action == "Wallet Tools":
-                    action = dialog("--list", "--title=Wallet Tools", "--column=Action",
-                                    "Export Watch-Only Wallet", "Import Watch-Only Wallet")
+                    action = dialog("--list", "--title=Wallet Tools", "--text=Transfer public descriptors and address labels.", "--column=Action",
+                                    "↑  Export Watch-Only Wallet", "↓  Import Watch-Only Wallet").split("  ", 1)[-1]
                 if action in ("Verify Receiving Address", "Receive PSBT", "Import Watch-Only Wallet"):
                     scan(action)
                 elif action == "Send PSBT":
