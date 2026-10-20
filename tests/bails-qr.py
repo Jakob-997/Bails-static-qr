@@ -5,8 +5,8 @@ import gzip
 import importlib.machinery
 import importlib.util
 import io
+import json
 from pathlib import Path
-import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -24,6 +24,8 @@ loader.exec_module(qr)
 qr.CORE_ARGS = ["-regtest"]
 PSBT = b"psbt\xff" + bytes.fromhex(
     "01003d0200000001" + "11" * 32 + "0000000000ffffffff01e803000000000000015100000000000000")
+DESCRIPTORS = [{"desc": "wpkh(public-key)#checksum", "timestamp": 123, "active": True,
+                "internal": False, "range": [0, 999], "next_index": 7}]
 
 
 class StaticQRTests(unittest.TestCase):
@@ -34,8 +36,7 @@ class StaticQRTests(unittest.TestCase):
 
     def scan(self, payload, kind="Receive PSBT", copy=True):
         gtk = MagicMock()
-        gtk.ResponseType.APPLY = 1
-        gtk.MessageDialog.return_value.run.side_effect = [1, 2] if copy else [2]
+        gtk.MessageDialog.return_value.run.side_effect = lambda: gtk.Button.return_value.connect.call_args.args[1](None) if copy else None
         buffer = gtk.TextView.return_value.get_buffer.return_value
         buffer.get_bounds.return_value = ("start", "end")
         with patch.dict(sys.modules, {"gi": MagicMock(), "gi.repository": MagicMock(Gtk=gtk)}), \
@@ -45,6 +46,8 @@ class StaticQRTests(unittest.TestCase):
             qr.scan(kind)
             if kind == "Receive PSBT":
                 save.assert_not_called()
+                gtk.MessageDialog.return_value.run.assert_called_once()
+                gtk.MessageDialog.return_value.destroy.assert_called_once()
                 sys.modules["gi"].require_versions.assert_called_once_with({"Gtk": "3.0", "Gdk": "3.0"})
                 if copy:
                     buffer.select_range.assert_called_once_with("start", "end")
@@ -91,18 +94,19 @@ class StaticQRTests(unittest.TestCase):
         rpc.assert_not_called()
 
     def test_compressed_wallet_image_roundtrip(self):
-        wallet = self.directory / "fixture.dat"
-        with sqlite3.connect(wallet) as connection:
-            connection.execute("CREATE TABLE wallet (label TEXT, request TEXT)")
-            connection.execute("INSERT INTO wallet VALUES (?, ?)", ("savings", "request metadata"))
-        connection.close()
-        original = wallet.read_bytes()
+        original = json.dumps(DESCRIPTORS).encode()
         payload = gzip.compress(original, mtime=0)
-        image = self.show(payload, original, "wallet.dat")
+        image = self.show(payload, original, "descriptors.json")
         result = zxingcpp.read_barcode(Image.open(image))
         self.assertIsNotNone(result)
         self.assertEqual(result.bytes, payload)
-        self.assertEqual(self.scan(result.bytes, "Import Watch-Only Wallet"), (original, "watch-only.dat"))
+        with patch.object(qr, "run", return_value=result.bytes), \
+                patch.object(qr, "dialog", side_effect=["online", b""]), \
+                patch.object(qr, "rpc", side_effect=[{}, [{"success": True}]]) as rpc:
+            qr.scan("Import Watch-Only Wallet")
+        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "online", "true", "true"))
+        self.assertEqual(json.loads(rpc.call_args.kwargs["data"]), DESCRIPTORS)
+        self.assertEqual(rpc.call_args.kwargs["wallet"], "online")
 
     def test_base64_psbt_image_roundtrip(self):
         encoded = base64.b64encode(PSBT)
@@ -120,11 +124,6 @@ class StaticQRTests(unittest.TestCase):
             self.scan(gzip.compress(b"x" * (qr.MAX_FILE + 1)))
         with self.assertRaises(ValueError):
             self.scan(b"x" * 2954)
-        for payload in (b"", b"x" * (qr.MAX_FILE + 1)):
-            source = self.directory / "oversized.psbt"
-            source.write_bytes(payload)
-            with self.assertRaises(ValueError):
-                qr.read_file(source)
 
     def test_largest_binary_static_qr(self):
         payload = bytes((i * 73 + 19) % 256 for i in range(2953))
@@ -237,7 +236,7 @@ class StaticQRTests(unittest.TestCase):
 
     def test_import_wallet_rejects_other_qr_types(self):
         with patch.object(qr, "run", return_value=base64.b64encode(PSBT)), \
-                patch.object(qr, "save") as save, self.assertRaisesRegex(ValueError, "wallet.dat"):
+                patch.object(qr, "save") as save, self.assertRaises(ValueError):
             qr.scan("Import Watch-Only Wallet")
         save.assert_not_called()
 
@@ -296,20 +295,40 @@ class StaticQRTests(unittest.TestCase):
         with patch.object(qr, "run", side_effect=error), self.assertRaises(qr.Cancelled):
             qr.dialog("--list")
 
-    def test_export_uses_core_watchonly_rpc_and_main_can_exit(self):
-        def export(method, path, wallet):
-            self.assertEqual((method, wallet), ("exportwatchonlywallet", "signing"))
-            Path(path).write_bytes(b"SQLite format 3\x00" + b"public wallet data")
-            return {}
+    def test_export_uses_only_public_descriptors_and_main_can_exit(self):
         temporary = tempfile.TemporaryDirectory
         with patch.object(qr.shutil, "which", return_value="available"), \
                 patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
                 patch.object(qr, "dialog", side_effect=["Wallet Tools", "Export Watch-Only Wallet", qr.Cancelled]), \
                 patch.object(qr, "wallet_name", return_value="signing"), \
-                patch.object(qr, "rpc", side_effect=export), patch.object(qr, "show") as show:
+                patch.object(qr, "rpc", return_value={"descriptors": DESCRIPTORS}) as rpc, patch.object(qr, "show") as show:
             with self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(gzip.decompress(show.call_args.args[0]), show.call_args.args[1])
+            self.assertEqual(json.loads(show.call_args.args[1]), DESCRIPTORS)
+            rpc.assert_called_once_with("listdescriptors", "false", wallet="signing")
+
+    def test_descriptor_import_failure_is_not_reported_as_success(self):
+        with patch.object(qr, "run", return_value=json.dumps(DESCRIPTORS).encode()), \
+                patch.object(qr, "dialog", return_value="online") as dialog, \
+                patch.object(qr, "rpc", side_effect=[{}, [{"success": False, "error": {"message": "invalid descriptor"}}]]), \
+                self.assertRaisesRegex(ValueError, "incomplete"):
+            qr.scan("Import Watch-Only Wallet")
+        dialog.assert_called_once()
+
+    def test_invalid_descriptor_payload_does_not_create_wallet(self):
+        for data in ({}, [], ["not a descriptor object"]):
+            with patch.object(qr, "run", return_value=json.dumps(data).encode()), \
+                    patch.object(qr, "rpc") as rpc, self.assertRaises(ValueError):
+                qr.scan("Import Watch-Only Wallet")
+            rpc.assert_not_called()
+
+    def test_cancelled_wallet_name_does_not_create_wallet(self):
+        with patch.object(qr, "run", return_value=json.dumps(DESCRIPTORS).encode()), \
+                patch.object(qr, "dialog", return_value=" "), patch.object(qr, "rpc") as rpc, \
+                self.assertRaises(qr.Cancelled):
+            qr.scan("Import Watch-Only Wallet")
+        rpc.assert_not_called()
 
 
 if __name__ == "__main__":

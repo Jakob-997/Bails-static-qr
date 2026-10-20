@@ -6,7 +6,6 @@ import base64
 import gzip
 import io
 import json
-from pathlib import Path
 import shutil
 import subprocess
 import sys
@@ -54,14 +53,6 @@ def wallet_name():
     return wallets[int(choice)]
 
 
-def read_file(path):
-    with open(path, "rb") as source:
-        data = source.read(MAX_FILE + 1)
-    if not data or len(data) > MAX_FILE:
-        raise ValueError("The file is empty or larger than 1 MiB. Use file transfer.")
-    return data
-
-
 def psbt_bytes(data):
     if not data.startswith(b"psbt\xff"):
         data = base64.b64decode(data.strip(), validate=True)
@@ -102,10 +93,17 @@ def scan(kind):
         if len(data) > MAX_FILE:
             raise ValueError("The decompressed file exceeds 1 MiB.")
     if kind == "Import Watch-Only Wallet":
-        if not data.startswith(b"SQLite format 3\x00"):
-            raise ValueError("Expected a compressed wallet.dat QR.")
-        save(data, "watch-only.dat")
-        dialog("--info", "--text=In Bitcoin Core, choose File > Restore Wallet and select the saved wallet.dat file.")
+        descriptors = json.loads(data)
+        if not isinstance(descriptors, list) or not descriptors or any(not isinstance(d, dict) for d in descriptors):
+            raise ValueError("Expected a public descriptor export.")
+        name = dialog("--entry", "--title=Import Watch-Only Wallet", "--text=Name for the new watch-only wallet:").strip()
+        if not name:
+            raise Cancelled()
+        rpc("createwallet", name, "true", "true")
+        results = rpc("importdescriptors", wallet=name, data=json.dumps(descriptors).encode() + b"\n")
+        if not all(r["success"] for r in results):
+            raise ValueError("Descriptor import failed; the new wallet may be incomplete.\n" + json.dumps(results))
+        dialog("--info", f"--text=Watch-only wallet {name} imported. Select it in Bitcoin Core.")
     elif kind == "Receive PSBT":
         if not data.startswith((b"psbt\xff", b"cHNidP")):
             raise ValueError("Expected a PSBT QR. Use Verify Receiving Address for receive addresses.")
@@ -120,11 +118,11 @@ def scan(kind):
         notice = Gtk.MessageDialog(message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.CLOSE,
                                    text="Copy the text below. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
         notice.get_content_area().pack_start(scroll, True, True, 0)
-        notice.add_button("Copy", Gtk.ResponseType.APPLY)
+        copy = Gtk.Button(label="Copy")
+        copy.connect("clicked", lambda _: (buffer.select_range(*buffer.get_bounds()), buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))))
+        notice.get_content_area().pack_start(copy, False, False, 0)
         notice.show_all()
-        while notice.run() == Gtk.ResponseType.APPLY:
-            buffer.select_range(*buffer.get_bounds())
-            buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))
+        notice.run()
         notice.destroy()
     else:
         address = data.decode("ascii", errors="replace").strip()
@@ -167,12 +165,10 @@ def main():
                     data = psbt_bytes(dialog("--entry", "--title=Send PSBT", "--text=Paste the PSBT text copied from Bitcoin Core.").encode("ascii"))
                     show(base64.b64encode(data), data, "transaction.psbt", directory)
                 elif action == "Export Watch-Only Wallet":
-                    wallet = wallet_name()
-                    path = Path(directory) / "watch-only.dat"
-                    path.unlink(missing_ok=True)
-                    rpc("exportwatchonlywallet", str(path), wallet=wallet)
-                    data = read_file(path)
-                    show(gzip.compress(data, compresslevel=9, mtime=0), data, "watch-only.dat", directory)
+                    data = json.dumps(rpc("listdescriptors", "false", wallet=wallet_name())["descriptors"], separators=(",", ":")).encode()
+                    if len(data) > MAX_FILE:
+                        raise ValueError("The descriptor export exceeds 1 MiB. Use file transfer.")
+                    show(gzip.compress(data, compresslevel=9, mtime=0), data, "watch-only-descriptors.json", directory)
             except Cancelled:
                 continue
             except (OSError, ValueError, EOFError, zlib.error, subprocess.SubprocessError) as error:

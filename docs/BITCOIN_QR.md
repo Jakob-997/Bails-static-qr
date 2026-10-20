@@ -13,7 +13,6 @@ and Tails' GTK 3 Python bindings for the clipboard,
 Python 3, and Tails' `python3-qrcode` library and `python3-qr` command. It uses the
 library's default PNG renderer without selecting PIL or another image factory.
 It installs nothing.
-Wallet export requires Core's `exportwatchonlywallet` RPC (Core 32 or later).
 Options such as `-regtest` and `-datadir=/path` can be passed to `bails-qr`;
 they are forwarded to `bitcoin-cli`.
 
@@ -22,22 +21,25 @@ they are forwarded to `bitcoin-cli`.
 1. On the CryoStick, open the signing wallet in Bitcoin Core.
 
 2. Choose **Wallet Tools** > **Export Watch-Only Wallet** and select that loaded wallet.
-   Core creates a watch-only *wallet.dat*. The tool compresses it with gzip
-   and opens a static QR image. The signing wallet file is never sent.
-   The export preserves the public wallet data that Core includes, such as
-   transactions, labels, and receive-request metadata.
+   The tool requests all public descriptors using `listdescriptors false`,
+   compresses them with gzip, and opens a static QR image. Private keys are not
+   requested. Descriptor timestamps, receiving/change settings, ranges, and next
+   address indexes are included. Labels and saved payment requests are not.
 
 3. On the CipherStick, choose **Wallet Tools** > **Import Watch-Only Wallet**.
    Hold the QR steady in view of the camera. Close the camera window to cancel;
    scanning times out after
    three minutes.
 
-4. Save the received file with a new name, such as *watch-only.dat*.
-   Choose a location in **Persistent Storage** only if you want to keep it.
+4. Enter a new wallet name. The tool creates a blank wallet with private keys
+   disabled and imports the descriptors. It creates the wallet in Core's
+   configured wallet directory. An existing wallet with that name is not reused.
 
-5. In Bitcoin Core, choose **File** > **Restore Wallet** and select the file.
-   Core validates and restores it. The QR tool recognizes the SQLite file
-   header; it does not itself validate or restore the wallet database.
+5. Wait for Core's import and blockchain rescan to finish, then select the wallet
+   in Core. The scan starts from the exported descriptor timestamps and can take
+   time. Historical blocks must be available; a pruned node may need additional
+   blocks. If any descriptor fails, the tool reports the failure; the new wallet
+   may be incomplete. Old *wallet.dat* QR exports are no longer accepted.
 
 ## Transfer a PSBT
 
@@ -52,7 +54,8 @@ they are forwarded to `bitcoin-cli`.
 
 4. In Core, select your wallet, then choose **File** > **Load PSBT from clipboard**. Review the transaction
    before signing or broadcasting. The QR tool does neither.
-   Close the text window after loading it in Core.
+   **Copy** leaves the text window open. **Close** exits immediately; the tool
+   never waits for Core or for a confirmation that the PSBT was loaded.
 
 Scanning also accepts the gzip-compressed PSBT format in the manual
 [CryoStick instructions](CRYOSTICK.md). It does not accept Sparrow's UR or
@@ -72,20 +75,20 @@ and other parameters are not used.
 ## Transfer files when a QR is too large or no camera is available
 
 A binary QR can hold at most 2,953 bytes at the lowest error correction level.
-Wallet transfers use compressed bytes; PSBT transfers use Base64 text, which
+Descriptor transfers use compressed bytes; PSBT transfers use Base64 text, which
 leaves room for at most 2,214 PSBT bytes. Real cameras may not read the densest
-codes reliably. Wallets can grow beyond these limits even with compression.
+codes reliably. Descriptor sets can exceed these limits even with compression.
 
 If a transfer is too large, the tool offers to save the original file.
 Use a new filename. To transfer without a camera:
 
-1. Export a watch-only wallet using **File** > **Export watch-only wallet**,
-   or save the PSBT in Core. Never copy the signing wallet's *wallet.dat*.
+1. Use the saved public descriptor JSON, or save the PSBT in Core.
 
 2. Copy the exported file to a USB stick or microSD card, move it to the
    receiving computer, and copy it there.
 
-3. Restore the watch-only file, or load the PSBT, using the Core menu above.
+3. Import the descriptor JSON using Core's `importdescriptors` RPC in a blank
+   wallet with private keys disabled, or load the PSBT from file in Core.
 
 The QR opens in Tails' normal image viewer without a separate instruction popup.
 Close the image after scanning. The viewer controls window size and zoom.
@@ -101,13 +104,16 @@ available in the test environment. The QR tests use the upstream generator
 and decode its PNG output independently.
 
 The Windows development checks cover QR image round trips with an independent
-decoder, compressed wallet bytes, raw oneshot scan output without an appended
+decoder, compressed public descriptors, raw oneshot scan output without an appended
 newline, size limits, PSBT RPC validation, address selection, cancellation,
 and file saving. Core and desktop
 calls are simulated in those checks. They do not replace a Tails test.
+An isolated Core 32.0rc4 check also verified single-signature and 3-of-7 descriptor
+round trips, matching next receiving/change addresses, and rejection of private
+descriptors by the destination wallet. A Linux GTK check verified Copy and Close.
 
 Before using real funds, test on the supported Tails release with two computers:
-export and restore a fresh watch-only wallet, compare its labels and metadata,
+export and import a fresh descriptor wallet, compare its next receiving and change addresses,
 transfer an unsigned PSBT, sign it in Core, transfer it back, and check an address.
 Also exercise camera cancellation, an unreadable QR, an oversized export,
 an invalid PSBT, a missing dependency, and a save destination that already exists.

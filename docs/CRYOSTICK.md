@@ -79,6 +79,9 @@ message, create a wallet with the same name again and close it.
 For dialogs instead of console commands, open **CipherStick** > **QR transfer**.
 See [Static QR transfer](BITCOIN_QR.md) for watch-only wallet and PSBT transfer,
 receive-address checks, and the USB or microSD fallback.
+The QR transfer tool now sends compressed public descriptors and creates a blank
+watch-only wallet automatically. The manual commands below instead transfer a
+*wallet.dat* file; their wallet QRs are not compatible with the tool's descriptor import.
 
 On the CryoStick:
 
