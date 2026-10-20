@@ -97,7 +97,7 @@ def scan(kind):
         descriptors = export.get("descriptors") if isinstance(export, dict) else None
         if not isinstance(descriptors, list) or not descriptors or any(not isinstance(d, dict) for d in descriptors) or not isinstance(export.get("wallet_name"), str):
             raise ValueError("Expected a public descriptor export.")
-        name = "Watch-only " + (export["wallet_name"] or "default").replace("/", "_").replace("\\", "_")
+        name = "[Watch-only] " + (export["wallet_name"] or "default").replace("/", "_").replace("\\", "_")
         rpc("createwallet", name, "true", "true")
         results = rpc("importdescriptors", wallet=name, data=json.dumps(descriptors).encode() + b"\n")
         if not all(r["success"] for r in results):

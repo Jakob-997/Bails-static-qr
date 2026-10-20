@@ -105,9 +105,9 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr, "dialog") as dialog, \
                 patch.object(qr, "rpc", side_effect=[{}, [{"success": True}]]) as rpc:
             qr.scan("Import Watch-Only Wallet")
-        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "Watch-only signing", "true", "true"))
+        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "[Watch-only] signing", "true", "true"))
         self.assertEqual(json.loads(rpc.call_args.kwargs["data"]), DESCRIPTORS)
-        self.assertEqual(rpc.call_args.kwargs["wallet"], "Watch-only signing")
+        self.assertEqual(rpc.call_args.kwargs["wallet"], "[Watch-only] signing")
         dialog.assert_called_once()
 
     def test_base64_psbt_image_roundtrip(self):
@@ -330,7 +330,7 @@ class StaticQRTests(unittest.TestCase):
         with patch.object(qr, "run", return_value=json.dumps(exported).encode()), \
                 patch.object(qr, "dialog"), patch.object(qr, "rpc", side_effect=[{}, [{"success": True}]]) as rpc:
             qr.scan("Import Watch-Only Wallet")
-        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "Watch-only .._folder_wallet_name", "true", "true"))
+        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "[Watch-only] .._folder_wallet_name", "true", "true"))
 
 
 if __name__ == "__main__":

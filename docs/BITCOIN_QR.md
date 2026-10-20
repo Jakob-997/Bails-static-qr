@@ -31,7 +31,7 @@ they are forwarded to `bitcoin-cli`.
    scanning times out after
    three minutes.
 
-4. The tool creates a blank wallet named **Watch-only <original wallet name>**,
+4. The tool creates a blank wallet named **[Watch-only] <original wallet name>**,
    with private keys disabled, and imports the descriptors. It creates the wallet
    in Core's configured wallet directory. An existing wallet with that name is
    not reused. Slashes in the original name become underscores.
