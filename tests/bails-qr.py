@@ -92,7 +92,9 @@ class StaticQRTests(unittest.TestCase):
             qr.main()
         self.assertIn("--text-info", dialog.call_args_list[1].args)
         self.assertIn("--editable", dialog.call_args_list[1].args)
-        self.assertIn("--width=600", dialog.call_args_list[1].args)
+        self.assertIn("--width=800", dialog.call_args_list[1].args)
+        self.assertIn("--height=400", dialog.call_args_list[1].args)
+        self.assertTrue(any("Create Unsigned" in arg and "Copy to Clipboard" in arg for arg in dialog.call_args_list[1].args))
         rpc.assert_called_once_with("decodepsbt", data=encoded + b"\n")
         self.assertEqual(show.call_args.args[:2], (PSBT, "transaction.psbt"))
 
@@ -367,6 +369,28 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr, "rpc", side_effect=[{}, [{"success": False, "error": {"message": "invalid descriptor"}}]]), \
                 self.assertRaisesRegex(ValueError, "incomplete"):
             qr.scan("Import Watch-Only Wallet")
+        dialog.assert_not_called()
+
+    def test_range_conflict_retries_with_current_range_and_index(self):
+        failure = {"success": False, "error": {"message": "new range must include current range"}}
+        current = dict(DESCRIPTORS[0], range=[0, 1004], next_index=12)
+        with patch.object(qr, "run", return_value=json.dumps(EXPORT).encode()), \
+                patch.object(qr, "dialog"), \
+                patch.object(qr, "rpc", side_effect=[{}, [failure], {"descriptors": [current]}, [{"success": True}]]) as rpc:
+            qr.scan("Import Watch-Only Wallet")
+        retried = json.loads(rpc.call_args.kwargs["data"])
+        self.assertEqual(retried[0]["range"], [0, 1004])
+        self.assertEqual(retried[0]["next_index"], 12)
+        self.assertEqual(rpc.call_count, 4)
+
+    def test_range_conflict_retry_failure_is_reported(self):
+        failure = {"success": False, "error": {"message": "new range must include current range"}}
+        with patch.object(qr, "run", return_value=json.dumps(EXPORT).encode()), \
+                patch.object(qr, "dialog") as dialog, \
+                patch.object(qr, "rpc", side_effect=[{}, [failure], {"descriptors": DESCRIPTORS}, [failure]]) as rpc, \
+                self.assertRaisesRegex(ValueError, "incomplete"):
+            qr.scan("Import Watch-Only Wallet")
+        self.assertEqual(rpc.call_count, 4)
         dialog.assert_not_called()
 
     def test_invalid_descriptor_payload_does_not_create_wallet(self):

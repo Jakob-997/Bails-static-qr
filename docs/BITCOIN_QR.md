@@ -43,11 +43,14 @@ they are forwarded to `bitcoin-cli`.
    time. Historical blocks must be available; a pruned node may need additional
    blocks. If any descriptor fails, the tool reports the failure; the new wallet
    may be incomplete. Old *wallet.dat* QR exports are no longer accepted.
-   Address labels are applied after all descriptors import successfully.
+   If Core expands a descriptor range during import, the tool retries that
+   descriptor once using the current range and preserves the higher next-address
+   index. Address labels are applied after all descriptors import successfully.
 
 ## Transfer a PSBT
 
-1. Copy an unsigned or signed PSBT as text from Bitcoin Core.
+1. In Bitcoin Core, choose **Create Unsigned**, then **Copy to Clipboard**.
+   For a PSBT already loaded in Core, use its **Copy to Clipboard** button.
 
 2. Choose **Send PSBT**, paste the text into the large text box, and click **Show QR**.
    Core checks that it decodes. Line breaks and surrounding whitespace are accepted.

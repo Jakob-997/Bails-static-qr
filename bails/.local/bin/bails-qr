@@ -104,8 +104,19 @@ def scan(kind):
         name = "[Watch-only] " + (export["wallet_name"] or "default").replace("/", "_").replace("\\", "_")
         rpc("createwallet", name, "true", "true")
         results = rpc("importdescriptors", wallet=name, data=json.dumps(descriptors).encode() + b"\n")
-        if not all(r["success"] for r in results):
-            raise ValueError("Descriptor import failed; the new wallet may be incomplete.\n" + json.dumps(results))
+        retry = {i: dict(d) for i, (d, r) in enumerate(zip(descriptors, results)) if not r["success"] and "new range must include current range" in r.get("error", {}).get("message", "")}
+        if retry:
+            current = {d["desc"]: d for d in rpc("listdescriptors", "false", wallet=name)["descriptors"]}
+            for d in retry.values():
+                existing = current.get(d["desc"], {})
+                if "range" in d and "range" in existing:
+                    d["range"] = [min(d["range"][0], existing["range"][0]), max(d["range"][1], existing["range"][1])]
+                    d["next_index"] = max(d.get("next_index", 0), existing.get("next_index", 0))
+            for i, result in zip(retry, rpc("importdescriptors", wallet=name, data=json.dumps(list(retry.values())).encode() + b"\n")):
+                results[i] = result
+        errors = [r["error"]["message"] for r in results if not r["success"]]
+        if errors:
+            raise ValueError("Descriptor import failed; the new wallet may be incomplete.\n" + "\n".join(errors))
         for address, label in labels.items():
             rpc("setlabel", address, label, wallet=name)
         dialog("--info", f"--text=Imported:\n\n{name}\n\nSelect this wallet in Bitcoin Core.")
@@ -169,7 +180,7 @@ def main():
                 if action in ("Verify Receiving Address", "Receive PSBT", "Import Watch-Only Wallet"):
                     scan(action)
                 elif action == "Send PSBT":
-                    data = psbt_bytes(dialog("--text-info", "--editable", "--filename=/dev/null", "--width=600", "--height=300", "--title=Send PSBT: paste text copied from Bitcoin Core", "--ok-label=Show QR").encode("ascii"))
+                    data = psbt_bytes(dialog("--text-info", "--editable", "--filename=/dev/null", "--width=800", "--height=400", "--title=Send PSBT\n\nIn Bitcoin Core, choose Create Unsigned, then Copy to Clipboard.\nPaste the text below and select Show QR.", "--ok-label=Show QR").encode("ascii"))
                     show(data, "transaction.psbt", directory)
                 elif action == "Export Watch-Only Wallet":
                     export = rpc("listdescriptors", "false", wallet=wallet_name())
