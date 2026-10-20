@@ -77,12 +77,20 @@ UR or BBQr QR exports.
 Choose **Verify Receiving Address** and scan an address or a `bitcoin:` payment URI. The tool
 checks Core's `ismine` result across the open wallets automatically. Open your
 signing wallet in Core first; no wallet selection is needed for this check.
-An owned address shows **You own this address**. An address that none of the open
-wallets recognize gets a warning to confirm it again on the offline signing
-wallet before sending funds. The success message names the first open wallet
-that recognizes the address. Bech32 addresses are displayed in lowercase;
-case-sensitive Base58 addresses keep their original case. Payment URI amounts
-and other parameters are not used.
+A match names the first open wallet that recognizes the address. Standard
+single-key descriptors (`pkh`, `wpkh`, `sh(wpkh)`, or `tr` without a script tree)
+in a private-key-enabled descriptor wallet confirm that the wallet holds the
+key needed to sign. This relies on Core's descriptor import rules; it does not
+perform a test signature or prove that nobody else has a copy of the key.
+Watch-only wallets, multisig, other spending policies, and unknown descriptor
+formats produce a warning that signing is not confirmed. A matching encrypted
+wallet also reminds you to have the encryption passphrase and confirm you can
+unlock it. The tool never requests the passphrase or unlocks the wallet.
+
+An address that none of the open wallets recognize gets a warning to confirm it
+again on the offline signing wallet before sending funds. Bech32 addresses are
+displayed in lowercase; case-sensitive Base58 addresses keep their original
+case. Payment URI amounts and other parameters are not used.
 
 ## Transfer files when a QR is too large or no camera is available
 

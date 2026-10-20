@@ -27,6 +27,8 @@ PSBT = b"psbt\xff" + bytes.fromhex(
 DESCRIPTORS = [{"desc": "wpkh(public-key)#checksum", "timestamp": 123, "active": True,
                 "internal": False, "range": [0, 999], "next_index": 7}]
 EXPORT = {"wallet_name": "signing", "descriptors": DESCRIPTORS}
+SINGLE = {"ismine": True, "parent_desc": "wpkh(public-key)#12345678"}
+SIGNING = {"descriptors": True, "private_keys_enabled": True}
 
 
 class StaticQRTests(unittest.TestCase):
@@ -203,21 +205,51 @@ class StaticQRTests(unittest.TestCase):
         with patch.object(qr, "run", return_value=f"bitcoin:{address.upper()}?amount=1".encode()), \
                 patch.object(qr, "wallet_name") as choose, \
                 patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["other", "signing"],
-                                                    {"ismine": False}, {"ismine": True}]) as rpc, \
+                                                    {"ismine": False}, SINGLE, SIGNING]) as rpc, \
                 patch.object(qr, "dialog") as dialog:
             qr.scan("Verify Receiving Address")
-            self.assertEqual(rpc.call_args.args, ("getaddressinfo", address))
+            self.assertEqual(rpc.call_args_list[-2].args, ("getaddressinfo", address))
             self.assertEqual(rpc.call_args.kwargs, {"wallet": "signing"})
             choose.assert_not_called()
             dialog.assert_called_once_with("--info", "--title=Address confirmed",
-                                           f"--text=You own this address in wallet:\nsigning\n\n{address}")
+                                           f"--text=Address matches wallet:\nsigning\n\n{address}\n\nThis wallet holds the key needed to sign for this address.")
 
     def test_plain_address_without_scanner_newline(self):
         with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
-                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], {"ismine": True}]) as rpc, \
+                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], SINGLE, SIGNING]) as rpc, \
                 patch.object(qr, "dialog"):
             qr.scan("Verify Receiving Address")
-            self.assertEqual(rpc.call_args.args, ("getaddressinfo", "bcrt1qexample"))
+            self.assertEqual(rpc.call_args_list[-2].args, ("getaddressinfo", "bcrt1qexample"))
+
+    def test_address_signing_classification_and_encryption(self):
+        cases = [
+            ("pkh(KEY)", SIGNING, True),
+            ("wpkh(KEY)", SIGNING, True),
+            ("sh(wpkh(KEY))", SIGNING, True),
+            ("tr(KEY)", SIGNING, True),
+            ("wsh(sortedmulti(2,KEY1,KEY2,KEY3))", SIGNING, False),
+            ("tr(KEY,pk(OTHER))", SIGNING, False),
+            ("tr(KEY,{pk(OTHER),pk(THIRD)})", SIGNING, False),
+            ("rawtr(KEY)", SIGNING, False),
+            ("wpkh(KEY)", dict(SIGNING, private_keys_enabled=False), False),
+            ("wpkh(KEY)", dict(SIGNING, descriptors=False), False),
+            ("", SIGNING, False),
+        ]
+        for desc, wallet, confirmed in cases:
+            for encrypted in (False, True):
+                with self.subTest(desc=desc, wallet=wallet, encrypted=encrypted):
+                    info = dict(SINGLE, parent_desc=desc + "#12345678" if desc else "")
+                    state = dict(wallet, unlocked_until=0) if encrypted else wallet
+                    with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
+                            patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], info, state]), \
+                            patch.object(qr, "dialog") as dialog:
+                        qr.scan("Verify Receiving Address")
+                    self.assertEqual(dialog.call_args.args[0], "--info" if confirmed else "--warning")
+                    message = dialog.call_args.args[2]
+                    self.assertEqual("holds the key needed to sign" in message, confirmed)
+                    self.assertEqual("encryption passphrase" in message, encrypted)
+                    if not confirmed:
+                        self.assertIn("Signing is not confirmed", message)
 
     def test_unowned_address_has_prominent_warning(self):
         with patch.object(qr, "run", return_value=b"BCRT1QEXAMPLE"), \
@@ -239,10 +271,10 @@ class StaticQRTests(unittest.TestCase):
     def test_base58_address_keeps_its_case(self):
         address = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"
         with patch.object(qr, "run", return_value=address.encode()), \
-                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], {"ismine": True}]) as rpc, \
+                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], SINGLE, SIGNING]) as rpc, \
                 patch.object(qr, "dialog") as dialog:
             qr.scan("Verify Receiving Address")
-            self.assertEqual(rpc.call_args.args, ("getaddressinfo", address))
+            self.assertEqual(rpc.call_args_list[-2].args, ("getaddressinfo", address))
             self.assertIn(address, dialog.call_args.args[2])
 
     def test_invalid_address_is_not_normalized_into_validity(self):
@@ -358,7 +390,7 @@ class StaticQRTests(unittest.TestCase):
 
     def test_default_wallet_address_confirmation_shows_name(self):
         with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
-                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, [""], {"ismine": True}]), \
+                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, [""], SINGLE, SIGNING]), \
                 patch.object(qr, "dialog") as dialog:
             qr.scan("Verify Receiving Address")
         self.assertIn("(default)", dialog.call_args.args[2])

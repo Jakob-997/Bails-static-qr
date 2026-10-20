@@ -6,6 +6,7 @@ import base64
 import gzip
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -152,9 +153,15 @@ def scan(kind):
         wallets = rpc("listwallets")
         if not wallets:
             raise ValueError("Open your wallet in Bitcoin Core, then scan the address again.")
-        owner = next((wallet for wallet in wallets if rpc("getaddressinfo", address, wallet=wallet).get("ismine")), None)
+        owner = next((wallet for wallet in wallets if (info := rpc("getaddressinfo", address, wallet=wallet)).get("ismine")), None)
         if owner is not None:
-            dialog("--info", "--title=Address confirmed", f"--text=You own this address in wallet:\n{owner or '(default)'}\n\n{address}")
+            wallet = rpc("getwalletinfo", wallet=owner)
+            single = wallet.get("descriptors") and re.fullmatch(r"(?:(?:pkh|wpkh|tr)\([^(),{}]+\)|sh\(wpkh\([^(),{}]+\)\))#[a-z0-9]{8}", info.get("parent_desc", ""))
+            confirmed = bool(single and wallet.get("private_keys_enabled"))
+            message = "This wallet holds the key needed to sign for this address." if confirmed else ("This is a watch-only wallet. Signing is not confirmed." if single else "Multisig or another unverified spending policy. Signing is not confirmed.")
+            if "unlocked_until" in wallet:
+                message += "\n\nThis wallet is encrypted. Ensure you have the encryption passphrase and can unlock it."
+            dialog("--info" if confirmed else "--warning", "--title=Address confirmed" if confirmed else "--title=Signing not confirmed", f"--text=Address matches wallet:\n{owner or '(default)'}\n\n{address}\n\n{message}")
         else:
             dialog("--warning", "--title=WARNING: Address not owned",
                    f"--text=⚠ WARNING: You do not own this address.\n\n{address}\n\n"
