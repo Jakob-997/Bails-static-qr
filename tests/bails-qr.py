@@ -26,6 +26,7 @@ PSBT = b"psbt\xff" + bytes.fromhex(
     "01003d0200000001" + "11" * 32 + "0000000000ffffffff01e803000000000000015100000000000000")
 DESCRIPTORS = [{"desc": "wpkh(public-key)#checksum", "timestamp": 123, "active": True,
                 "internal": False, "range": [0, 999], "next_index": 7}]
+EXPORT = {"wallet_name": "signing", "descriptors": DESCRIPTORS}
 
 
 class StaticQRTests(unittest.TestCase):
@@ -94,19 +95,20 @@ class StaticQRTests(unittest.TestCase):
         rpc.assert_not_called()
 
     def test_compressed_wallet_image_roundtrip(self):
-        original = json.dumps(DESCRIPTORS).encode()
+        original = json.dumps(EXPORT).encode()
         payload = gzip.compress(original, mtime=0)
         image = self.show(payload, original, "descriptors.json")
         result = zxingcpp.read_barcode(Image.open(image))
         self.assertIsNotNone(result)
         self.assertEqual(result.bytes, payload)
         with patch.object(qr, "run", return_value=result.bytes), \
-                patch.object(qr, "dialog", side_effect=["online", b""]), \
+                patch.object(qr, "dialog") as dialog, \
                 patch.object(qr, "rpc", side_effect=[{}, [{"success": True}]]) as rpc:
             qr.scan("Import Watch-Only Wallet")
-        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "online", "true", "true"))
+        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "Watch-only signing", "true", "true"))
         self.assertEqual(json.loads(rpc.call_args.kwargs["data"]), DESCRIPTORS)
-        self.assertEqual(rpc.call_args.kwargs["wallet"], "online")
+        self.assertEqual(rpc.call_args.kwargs["wallet"], "Watch-only signing")
+        dialog.assert_called_once()
 
     def test_base64_psbt_image_roundtrip(self):
         encoded = base64.b64encode(PSBT)
@@ -301,34 +303,34 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
                 patch.object(qr, "dialog", side_effect=["Wallet Tools", "Export Watch-Only Wallet", qr.Cancelled]), \
                 patch.object(qr, "wallet_name", return_value="signing"), \
-                patch.object(qr, "rpc", return_value={"descriptors": DESCRIPTORS}) as rpc, patch.object(qr, "show") as show:
+                patch.object(qr, "rpc", return_value=EXPORT) as rpc, patch.object(qr, "show") as show:
             with self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(gzip.decompress(show.call_args.args[0]), show.call_args.args[1])
-            self.assertEqual(json.loads(show.call_args.args[1]), DESCRIPTORS)
+            self.assertEqual(json.loads(show.call_args.args[1]), EXPORT)
             rpc.assert_called_once_with("listdescriptors", "false", wallet="signing")
 
     def test_descriptor_import_failure_is_not_reported_as_success(self):
-        with patch.object(qr, "run", return_value=json.dumps(DESCRIPTORS).encode()), \
+        with patch.object(qr, "run", return_value=json.dumps(EXPORT).encode()), \
                 patch.object(qr, "dialog", return_value="online") as dialog, \
                 patch.object(qr, "rpc", side_effect=[{}, [{"success": False, "error": {"message": "invalid descriptor"}}]]), \
                 self.assertRaisesRegex(ValueError, "incomplete"):
             qr.scan("Import Watch-Only Wallet")
-        dialog.assert_called_once()
+        dialog.assert_not_called()
 
     def test_invalid_descriptor_payload_does_not_create_wallet(self):
-        for data in ({}, [], ["not a descriptor object"]):
+        for data in ({}, [], ["not a descriptor object"], {"wallet_name": 4, "descriptors": DESCRIPTORS}):
             with patch.object(qr, "run", return_value=json.dumps(data).encode()), \
                     patch.object(qr, "rpc") as rpc, self.assertRaises(ValueError):
                 qr.scan("Import Watch-Only Wallet")
             rpc.assert_not_called()
 
-    def test_cancelled_wallet_name_does_not_create_wallet(self):
-        with patch.object(qr, "run", return_value=json.dumps(DESCRIPTORS).encode()), \
-                patch.object(qr, "dialog", return_value=" "), patch.object(qr, "rpc") as rpc, \
-                self.assertRaises(qr.Cancelled):
+    def test_imported_wallet_name_is_not_a_path(self):
+        exported = dict(EXPORT, wallet_name="../folder/wallet\\name")
+        with patch.object(qr, "run", return_value=json.dumps(exported).encode()), \
+                patch.object(qr, "dialog"), patch.object(qr, "rpc", side_effect=[{}, [{"success": True}]]) as rpc:
             qr.scan("Import Watch-Only Wallet")
-        rpc.assert_not_called()
+        self.assertEqual(rpc.call_args_list[0].args, ("createwallet", "Watch-only .._folder_wallet_name", "true", "true"))
 
 
 if __name__ == "__main__":

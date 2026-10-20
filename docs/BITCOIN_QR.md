@@ -31,9 +31,10 @@ they are forwarded to `bitcoin-cli`.
    scanning times out after
    three minutes.
 
-4. Enter a new wallet name. The tool creates a blank wallet with private keys
-   disabled and imports the descriptors. It creates the wallet in Core's
-   configured wallet directory. An existing wallet with that name is not reused.
+4. The tool creates a blank wallet named **Watch-only <original wallet name>**,
+   with private keys disabled, and imports the descriptors. It creates the wallet
+   in Core's configured wallet directory. An existing wallet with that name is
+   not reused. Slashes in the original name become underscores.
 
 5. Wait for Core's import and blockchain rescan to finish, then select the wallet
    in Core. The scan starts from the exported descriptor timestamps and can take
@@ -87,7 +88,7 @@ Use a new filename. To transfer without a camera:
 2. Copy the exported file to a USB stick or microSD card, move it to the
    receiving computer, and copy it there.
 
-3. Import the descriptor JSON using Core's `importdescriptors` RPC in a blank
+3. Import the saved JSON's `descriptors` array using Core's `importdescriptors` RPC in a blank
    wallet with private keys disabled, or load the PSBT from file in Core.
 
 The QR opens in Tails' normal image viewer without a separate instruction popup.
