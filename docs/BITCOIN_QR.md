@@ -24,7 +24,9 @@ they are forwarded to `bitcoin-cli`.
    The tool requests all public descriptors using `listdescriptors false`,
    compresses them with gzip, and opens a static QR image. Private keys are not
    requested. Descriptor timestamps, receiving/change settings, ranges, and next
-   address indexes are included. Labels and saved payment requests are not.
+   address indexes and nonempty address labels are included in the same
+   compressed QR. Saved payment requests are not included. Larger label sets
+   can still exceed one QR; the existing file fallback applies.
 
 3. On the CipherStick, choose **Wallet Tools** > **Import Watch-Only Wallet**.
    Hold the QR steady in view of the camera. Close the camera window to cancel;
@@ -41,6 +43,7 @@ they are forwarded to `bitcoin-cli`.
    time. Historical blocks must be available; a pruned node may need additional
    blocks. If any descriptor fails, the tool reports the failure; the new wallet
    may be incomplete. Old *wallet.dat* QR exports are no longer accepted.
+   Address labels are applied after all descriptors import successfully.
 
 ## Transfer a PSBT
 
@@ -50,7 +53,7 @@ they are forwarded to `bitcoin-cli`.
    The static QR contains its Base64 representation, which Sparrow can scan.
 
 3. On the other computer, choose **Receive PSBT**. Core checks that the transaction
-   decodes, then the tool shows its Base64 text. Click **Copy**, or select the
+   decodes, then the tool shows its Base64 text. Click **Copy** above the text, or select the
    text and press **Ctrl+C**.
 
 4. In Core, select your wallet, then choose **File** > **Load PSBT from clipboard**. Review the transaction
@@ -69,7 +72,8 @@ checks Core's `ismine` result across the open wallets automatically. Open your
 signing wallet in Core first; no wallet selection is needed for this check.
 An owned address shows **You own this address**. An address that none of the open
 wallets recognize gets a warning to confirm it again on the offline signing
-wallet before sending funds. Bech32 addresses are displayed in lowercase;
+wallet before sending funds. The success message names the first open wallet
+that recognizes the address. Bech32 addresses are displayed in lowercase;
 case-sensitive Base58 addresses keep their original case. Payment URI amounts
 and other parameters are not used.
 
@@ -90,6 +94,7 @@ Use a new filename. To transfer without a camera:
 
 3. Import the saved JSON's `descriptors` array using Core's `importdescriptors` RPC in a blank
    wallet with private keys disabled, or load the PSBT from file in Core.
+   Address labels in the JSON can be applied with Core's `setlabel` RPC.
 
 The QR opens in Tails' normal image viewer without a separate instruction popup.
 Close the image after scanning. The viewer controls window size and zoom.
@@ -110,8 +115,13 @@ newline, size limits, PSBT RPC validation, address selection, cancellation,
 and file saving. Core and desktop
 calls are simulated in those checks. They do not replace a Tails test.
 An isolated Core 32.0rc4 check also verified single-signature and 3-of-7 descriptor
-round trips, matching next receiving/change addresses, and rejection of private
-descriptors by the destination wallet. A Linux GTK check verified Copy and Close.
+round trips with 20 labels, matching next receiving/change addresses for all four
+standard single-signature address types including Taproot, and rejection of
+private descriptors by the destination wallet. Indexes reflect the time of
+export; creating more addresses later on one computer does not synchronize the
+other automatically. Compare the same address type on both computers.
+A Linux GTK check reproduced the lingering window after Close and verified that
+flushing pending display requests removes it before the main menu resumes.
 
 Before using real funds, test on the supported Tails release with two computers:
 export and import a fresh descriptor wallet, compare its next receiving and change addresses,

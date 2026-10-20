@@ -37,10 +37,11 @@ class StaticQRTests(unittest.TestCase):
 
     def scan(self, payload, kind="Receive PSBT", copy=True):
         gtk = MagicMock()
+        gdk = MagicMock()
         gtk.MessageDialog.return_value.run.side_effect = lambda: gtk.Button.return_value.connect.call_args.args[1](None) if copy else None
         buffer = gtk.TextView.return_value.get_buffer.return_value
         buffer.get_bounds.return_value = ("start", "end")
-        with patch.dict(sys.modules, {"gi": MagicMock(), "gi.repository": MagicMock(Gtk=gtk)}), \
+        with patch.dict(sys.modules, {"gi": MagicMock(), "gi.repository": MagicMock(Gtk=gtk, Gdk=gdk)}), \
                 patch.object(qr, "run", return_value=payload), \
                 patch.object(qr, "save") as save, patch.object(qr, "dialog"), \
                 patch.object(qr, "rpc", return_value={}):
@@ -49,6 +50,10 @@ class StaticQRTests(unittest.TestCase):
                 save.assert_not_called()
                 gtk.MessageDialog.return_value.run.assert_called_once()
                 gtk.MessageDialog.return_value.destroy.assert_called_once()
+                gdk.Display.get_default.return_value.flush.assert_called_once()
+                packed = gtk.MessageDialog.return_value.get_content_area.return_value.pack_start.call_args_list
+                self.assertIs(packed[0].args[0], gtk.Button.return_value)
+                self.assertIs(packed[1].args[0], gtk.ScrolledWindow.return_value)
                 sys.modules["gi"].require_versions.assert_called_once_with({"Gtk": "3.0", "Gdk": "3.0"})
                 if copy:
                     buffer.select_range.assert_called_once_with("start", "end")
@@ -185,7 +190,7 @@ class StaticQRTests(unittest.TestCase):
             self.assertEqual(rpc.call_args.kwargs, {"wallet": "signing"})
             choose.assert_not_called()
             dialog.assert_called_once_with("--info", "--title=Address confirmed",
-                                           f"--text=You own this address.\n\n{address}")
+                                           f"--text=You own this address in wallet:\nsigning\n\n{address}")
 
     def test_plain_address_without_scanner_newline(self):
         with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
@@ -303,12 +308,41 @@ class StaticQRTests(unittest.TestCase):
                 patch.object(qr.tempfile, "TemporaryDirectory", side_effect=lambda **kw: temporary()), \
                 patch.object(qr, "dialog", side_effect=["Wallet Tools", "Export Watch-Only Wallet", qr.Cancelled]), \
                 patch.object(qr, "wallet_name", return_value="signing"), \
-                patch.object(qr, "rpc", return_value=EXPORT) as rpc, patch.object(qr, "show") as show:
+                patch.object(qr, "rpc", side_effect=[dict(EXPORT), ["", "Savings"], {"test-address": {"purpose": "receive"}}]) as rpc, patch.object(qr, "show") as show:
             with self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(gzip.decompress(show.call_args.args[0]), show.call_args.args[1])
-            self.assertEqual(json.loads(show.call_args.args[1]), EXPORT)
-            rpc.assert_called_once_with("listdescriptors", "false", wallet="signing")
+            self.assertEqual(json.loads(show.call_args.args[1]), dict(EXPORT, labels={"test-address": "Savings"}))
+            self.assertEqual(rpc.call_args_list[0].args, ("listdescriptors", "false"))
+            self.assertEqual(rpc.call_args_list[2].args, ("getaddressesbylabel", "Savings"))
+            self.assertEqual(rpc.call_count, 3)
+
+    def test_labels_are_imported_only_after_descriptors_succeed(self):
+        labels = {"test-address": 'Savings "quotes" and café'}
+        exported = dict(EXPORT, labels=labels)
+        with patch.object(qr, "run", return_value=gzip.compress(json.dumps(exported).encode())), \
+                patch.object(qr, "dialog"), patch.object(qr, "rpc", side_effect=[{}, [{"success": True}], None]) as rpc:
+            qr.scan("Import Watch-Only Wallet")
+        self.assertEqual(rpc.call_args.args, ("setlabel", "test-address", labels["test-address"]))
+        self.assertEqual(rpc.call_args.kwargs, {"wallet": "[Watch-only] signing"})
+
+    def test_core_void_result_is_accepted(self):
+        with patch.object(qr, "run", return_value=b""):
+            self.assertIsNone(qr.rpc("setlabel", "address", "Savings", wallet="online"))
+
+    def test_invalid_label_payload_does_not_create_wallet(self):
+        for labels in ([], {"address": 3}):
+            with patch.object(qr, "run", return_value=json.dumps(dict(EXPORT, labels=labels)).encode()), \
+                    patch.object(qr, "rpc") as rpc, self.assertRaisesRegex(ValueError, "labels"):
+                qr.scan("Import Watch-Only Wallet")
+            rpc.assert_not_called()
+
+    def test_default_wallet_address_confirmation_shows_name(self):
+        with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
+                patch.object(qr, "rpc", side_effect=[{"isvalid": True}, [""], {"ismine": True}]), \
+                patch.object(qr, "dialog") as dialog:
+            qr.scan("Verify Receiving Address")
+        self.assertIn("(default)", dialog.call_args.args[2])
 
     def test_descriptor_import_failure_is_not_reported_as_success(self):
         with patch.object(qr, "run", return_value=json.dumps(EXPORT).encode()), \

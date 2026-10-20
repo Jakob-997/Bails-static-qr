@@ -38,7 +38,7 @@ def rpc(method, *args, wallet=None, data=None):
     options = [f"-rpcwallet={wallet}"] if wallet is not None else []
     if data is not None:
         options.append("-stdin")
-    return json.loads(run("bitcoin-cli", *CORE_ARGS, *options, method, *args, input=data))
+    return json.loads(run("bitcoin-cli", *CORE_ARGS, *options, method, *args, input=data) or b"null")
 
 
 def wallet_name():
@@ -97,12 +97,17 @@ def scan(kind):
         descriptors = export.get("descriptors") if isinstance(export, dict) else None
         if not isinstance(descriptors, list) or not descriptors or any(not isinstance(d, dict) for d in descriptors) or not isinstance(export.get("wallet_name"), str):
             raise ValueError("Expected a public descriptor export.")
+        labels = export.get("labels", {})
+        if not isinstance(labels, dict) or any(not isinstance(a, str) or not isinstance(label, str) for a, label in labels.items()):
+            raise ValueError("Expected address labels as text.")
         name = "[Watch-only] " + (export["wallet_name"] or "default").replace("/", "_").replace("\\", "_")
         rpc("createwallet", name, "true", "true")
         results = rpc("importdescriptors", wallet=name, data=json.dumps(descriptors).encode() + b"\n")
         if not all(r["success"] for r in results):
             raise ValueError("Descriptor import failed; the new wallet may be incomplete.\n" + json.dumps(results))
-        dialog("--info", f"--text=Watch-only wallet {name} imported. Select it in Bitcoin Core.")
+        for address, label in labels.items():
+            rpc("setlabel", address, label, wallet=name)
+        dialog("--info", f"--text=Imported:\n\n{name}\n\nSelect this wallet in Bitcoin Core.")
     elif kind == "Receive PSBT":
         if not data.startswith((b"psbt\xff", b"cHNidP")):
             raise ValueError("Expected a PSBT QR. Use Verify Receiving Address for receive addresses.")
@@ -115,14 +120,15 @@ def scan(kind):
         scroll = Gtk.ScrolledWindow(min_content_width=500, min_content_height=150)
         scroll.add(text)
         notice = Gtk.MessageDialog(message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.CLOSE,
-                                   text="Copy the text below. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
-        notice.get_content_area().pack_start(scroll, True, True, 0)
+                                   text="Select Copy. In Bitcoin Core, select your wallet, then choose File > Load PSBT from clipboard.")
         copy = Gtk.Button(label="Copy")
         copy.connect("clicked", lambda _: (buffer.select_range(*buffer.get_bounds()), buffer.copy_clipboard(Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD))))
         notice.get_content_area().pack_start(copy, False, False, 0)
+        notice.get_content_area().pack_start(scroll, True, True, 0)
         notice.show_all()
         notice.run()
         notice.destroy()
+        Gdk.Display.get_default().flush()
     else:
         address = data.decode("ascii", errors="replace").strip()
         if address.lower().startswith("bitcoin:"):
@@ -134,8 +140,9 @@ def scan(kind):
         wallets = rpc("listwallets")
         if not wallets:
             raise ValueError("Open your wallet in Bitcoin Core, then scan the address again.")
-        if any(rpc("getaddressinfo", address, wallet=wallet).get("ismine") for wallet in wallets):
-            dialog("--info", "--title=Address confirmed", f"--text=You own this address.\n\n{address}")
+        owner = next((wallet for wallet in wallets if rpc("getaddressinfo", address, wallet=wallet).get("ismine")), None)
+        if owner is not None:
+            dialog("--info", "--title=Address confirmed", f"--text=You own this address in wallet:\n{owner or '(default)'}\n\n{address}")
         else:
             dialog("--warning", "--title=WARNING: Address not owned",
                    f"--text=⚠ WARNING: You do not own this address.\n\n{address}\n\n"
@@ -164,7 +171,10 @@ def main():
                     data = psbt_bytes(dialog("--entry", "--title=Send PSBT", "--text=Paste the PSBT text copied from Bitcoin Core.").encode("ascii"))
                     show(base64.b64encode(data), data, "transaction.psbt", directory)
                 elif action == "Export Watch-Only Wallet":
-                    data = json.dumps(rpc("listdescriptors", "false", wallet=wallet_name()), separators=(",", ":")).encode()
+                    export = rpc("listdescriptors", "false", wallet=wallet_name())
+                    export["labels"] = {address: label for label in rpc("listlabels", wallet=export["wallet_name"]) if label
+                                        for address in rpc("getaddressesbylabel", label, wallet=export["wallet_name"])}
+                    data = json.dumps(export, separators=(",", ":")).encode()
                     if len(data) > MAX_FILE:
                         raise ValueError("The descriptor export exceeds 1 MiB. Use file transfer.")
                     show(gzip.compress(data, compresslevel=9, mtime=0), data, "watch-only-descriptors.json", directory)
