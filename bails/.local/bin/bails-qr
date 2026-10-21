@@ -177,7 +177,7 @@ def main():
             raise ValueError(f"Missing {command}. See docs/BITCOIN_QR.md for requirements.")
     with tempfile.TemporaryDirectory(prefix="bails-qr-", dir="/tmp") as directory:
         while True:
-            action = dialog("--list", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools").split("  ", 1)[-1]
+            action = dialog("--list", "--width=640", "--height=520", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools").split("  ", 1)[-1]
             if not action:
                 return
             try:

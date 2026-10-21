@@ -335,7 +335,7 @@ class StaticQRTests(unittest.TestCase):
                     patch.object(qr, "scan") as scan, self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(dialog.call_args_list[0].args,
-                             ("--list", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools"))
+                             ("--list", "--width=640", "--height=520", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools"))
             scan.assert_called_once_with(action)
 
     def test_receive_psbt_does_not_verify_an_address(self):
