@@ -84,8 +84,10 @@ single-key descriptors (`pkh`, `wpkh`, `sh(wpkh)`, or `tr` without a script tree
 in a private-key-enabled descriptor wallet confirm that the wallet holds the
 key needed to sign. This relies on Core's descriptor import rules; it does not
 perform a test signature or prove that nobody else has a copy of the key.
-Watch-only wallets, multisig, other spending policies, and unknown descriptor
-formats produce a warning that signing is not confirmed. A matching encrypted
+Watch-only wallets warn that this wallet does not hold the signing key and ask
+you to verify on your offline signing wallet before sending funds. Multisig,
+other spending policies, and unknown descriptor formats warn that signing is not
+confirmed. A matching encrypted
 wallet shows a prominent encryption warning reminding you to have the encryption
 passphrase and confirm you can unlock it. The tool never requests the passphrase or unlocks the wallet.
 

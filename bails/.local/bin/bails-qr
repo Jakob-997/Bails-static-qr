@@ -158,10 +158,10 @@ def scan(kind):
             wallet = rpc("getwalletinfo", wallet=owner)
             single = wallet.get("descriptors") and re.fullmatch(r"(?:(?:pkh|wpkh|tr)\([^(),{}]+\)|sh\(wpkh\([^(),{}]+\)\))#[a-z0-9]{8}", info.get("parent_desc", ""))
             confirmed = bool(single and wallet.get("private_keys_enabled"))
-            message = "This wallet holds the key needed to sign for this address." if confirmed else ("This is a watch-only wallet. Signing is not confirmed." if single else "Multisig or another unverified spending policy. Signing is not confirmed.")
+            message = "This wallet holds the key needed to sign for this address." if confirmed else ("⚠ WARNING: You do not own the signing key for this address in this wallet.\n\nVerify this address in your offline signing wallet before sending funds." if not wallet.get("private_keys_enabled") else "Multisig or another unverified spending policy. Signing is not confirmed.")
             if "unlocked_until" in wallet:
                 message = "⚠ ENCRYPTED WALLET\nEnsure you have the encryption passphrase and can unlock this wallet.\n\n" + message
-            dialog("--info" if confirmed and "unlocked_until" not in wallet else "--warning", "--title=WARNING: Encrypted wallet" if "unlocked_until" in wallet else ("--title=Address confirmed" if confirmed else "--title=Signing not confirmed"), f"--text={message}\n\n{'✓ ' if confirmed else ''}Address matches wallet:\n{owner or '(default)'}\n\n{address}")
+            dialog("--info" if confirmed and "unlocked_until" not in wallet else "--warning", "--title=WARNING: Encrypted wallet" if "unlocked_until" in wallet else ("--title=Address confirmed" if confirmed else ("--title=WARNING: Signing key not owned" if not wallet.get("private_keys_enabled") else "--title=Signing not confirmed")), f"--text={message}\n\n{'✓ ' if confirmed else ''}Address matches wallet:\n{owner or '(default)'}\n\n{address}")
         else:
             dialog("--warning", "--title=WARNING: Address not owned",
                    f"--text=⚠ WARNING: You do not own this address.\n\n{address}\n\n"

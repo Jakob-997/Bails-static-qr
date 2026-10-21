@@ -233,6 +233,7 @@ class StaticQRTests(unittest.TestCase):
             ("tr(KEY,{pk(OTHER),pk(THIRD)})", SIGNING, False),
             ("rawtr(KEY)", SIGNING, False),
             ("wpkh(KEY)", dict(SIGNING, private_keys_enabled=False), False),
+            ("wsh(sortedmulti(2,KEY1,KEY2,KEY3))", dict(SIGNING, private_keys_enabled=False), False),
             ("wpkh(KEY)", dict(SIGNING, descriptors=False), False),
             ("", SIGNING, False),
         ]
@@ -253,7 +254,14 @@ class StaticQRTests(unittest.TestCase):
                     if encrypted:
                         self.assertTrue(message.startswith("--text=⚠ ENCRYPTED WALLET"))
                         self.assertEqual(dialog.call_args.args[1], "--title=WARNING: Encrypted wallet")
-                    if not confirmed:
+                    if not wallet.get("private_keys_enabled"):
+                        self.assertIn("WARNING: You do not own the signing key", message)
+                        self.assertIn("in this wallet", message)
+                        self.assertIn("offline signing wallet before sending funds", message)
+                        self.assertNotIn("Signing is not confirmed", message)
+                        if not encrypted:
+                            self.assertEqual(dialog.call_args.args[1], "--title=WARNING: Signing key not owned")
+                    elif not confirmed:
                         self.assertIn("Signing is not confirmed", message)
 
     def test_unowned_address_has_prominent_warning(self):
