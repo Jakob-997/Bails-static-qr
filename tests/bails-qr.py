@@ -125,6 +125,7 @@ class StaticQRTests(unittest.TestCase):
         self.assertEqual(json.loads(rpc.call_args.kwargs["data"]), DESCRIPTORS)
         self.assertEqual(rpc.call_args.kwargs["wallet"], "[Watch-only] signing")
         dialog.assert_called_once()
+        self.assertIn("Window > Receiving addresses", dialog.call_args.args[1])
 
     def test_compressed_psbt_image_roundtrip(self):
         image = self.show(PSBT, "transaction.psbt")
@@ -212,7 +213,7 @@ class StaticQRTests(unittest.TestCase):
             self.assertEqual(rpc.call_args.kwargs, {"wallet": "signing"})
             choose.assert_not_called()
             dialog.assert_called_once_with("--info", "--title=Address confirmed",
-                                           f"--text=Address matches wallet:\nsigning\n\n{address}\n\nThis wallet holds the key needed to sign for this address.")
+                                           f"--text=This wallet holds the key needed to sign for this address.\n\n✓ Address matches wallet:\nsigning\n\n{address}")
 
     def test_plain_address_without_scanner_newline(self):
         with patch.object(qr, "run", return_value=b"bcrt1qexample"), \
@@ -244,10 +245,14 @@ class StaticQRTests(unittest.TestCase):
                             patch.object(qr, "rpc", side_effect=[{"isvalid": True}, ["signing"], info, state]), \
                             patch.object(qr, "dialog") as dialog:
                         qr.scan("Verify Receiving Address")
-                    self.assertEqual(dialog.call_args.args[0], "--info" if confirmed else "--warning")
+                    self.assertEqual(dialog.call_args.args[0], "--info" if confirmed and not encrypted else "--warning")
                     message = dialog.call_args.args[2]
                     self.assertEqual("holds the key needed to sign" in message, confirmed)
                     self.assertEqual("encryption passphrase" in message, encrypted)
+                    self.assertEqual("✓ Address matches wallet" in message, confirmed)
+                    if encrypted:
+                        self.assertTrue(message.startswith("--text=⚠ ENCRYPTED WALLET"))
+                        self.assertEqual(dialog.call_args.args[1], "--title=WARNING: Encrypted wallet")
                     if not confirmed:
                         self.assertIn("Signing is not confirmed", message)
 

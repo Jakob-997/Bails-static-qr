@@ -46,6 +46,8 @@ they are forwarded to `bitcoin-cli`.
    If Core expands a descriptor range during import, the tool retries that
    descriptor once using the current range and preserves the higher next-address
    index. Address labels are applied after all descriptors import successfully.
+   Find imported receiving addresses and their labels under **Window** >
+   **Receiving addresses** in Core.
 
 ## Transfer a PSBT
 
@@ -84,8 +86,8 @@ key needed to sign. This relies on Core's descriptor import rules; it does not
 perform a test signature or prove that nobody else has a copy of the key.
 Watch-only wallets, multisig, other spending policies, and unknown descriptor
 formats produce a warning that signing is not confirmed. A matching encrypted
-wallet also reminds you to have the encryption passphrase and confirm you can
-unlock it. The tool never requests the passphrase or unlocks the wallet.
+wallet shows a prominent encryption warning reminding you to have the encryption
+passphrase and confirm you can unlock it. The tool never requests the passphrase or unlocks the wallet.
 
 An address that none of the open wallets recognize gets a warning to confirm it
 again on the offline signing wallet before sending funds. Bech32 addresses are

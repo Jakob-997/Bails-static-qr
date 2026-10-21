@@ -120,7 +120,7 @@ def scan(kind):
             raise ValueError("Descriptor import failed; the new wallet may be incomplete.\n" + "\n".join(errors))
         for address, label in labels.items():
             rpc("setlabel", address, label, wallet=name)
-        dialog("--info", f"--text=Imported:\n\n{name}\n\nSelect this wallet in Bitcoin Core.")
+        dialog("--info", f"--text=Imported:\n\n{name}\n\nSelect this wallet in Bitcoin Core.\n\nFind imported receiving addresses and their labels under Window > Receiving addresses.")
     elif kind == "Receive PSBT":
         if not data.startswith((b"psbt\xff", b"cHNidP")):
             raise ValueError("Expected a PSBT QR. Use Verify Receiving Address for receive addresses.")
@@ -160,8 +160,8 @@ def scan(kind):
             confirmed = bool(single and wallet.get("private_keys_enabled"))
             message = "This wallet holds the key needed to sign for this address." if confirmed else ("This is a watch-only wallet. Signing is not confirmed." if single else "Multisig or another unverified spending policy. Signing is not confirmed.")
             if "unlocked_until" in wallet:
-                message += "\n\nThis wallet is encrypted. Ensure you have the encryption passphrase and can unlock it."
-            dialog("--info" if confirmed else "--warning", "--title=Address confirmed" if confirmed else "--title=Signing not confirmed", f"--text=Address matches wallet:\n{owner or '(default)'}\n\n{address}\n\n{message}")
+                message = "⚠ ENCRYPTED WALLET\nEnsure you have the encryption passphrase and can unlock this wallet.\n\n" + message
+            dialog("--info" if confirmed and "unlocked_until" not in wallet else "--warning", "--title=WARNING: Encrypted wallet" if "unlocked_until" in wallet else ("--title=Address confirmed" if confirmed else "--title=Signing not confirmed"), f"--text={message}\n\n{'✓ ' if confirmed else ''}Address matches wallet:\n{owner or '(default)'}\n\n{address}")
         else:
             dialog("--warning", "--title=WARNING: Address not owned",
                    f"--text=⚠ WARNING: You do not own this address.\n\n{address}\n\n"
