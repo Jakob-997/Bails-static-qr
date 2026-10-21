@@ -273,7 +273,7 @@ class StaticQRTests(unittest.TestCase):
             qr.scan("Verify Receiving Address")
             self.assertEqual(dialog.call_args.args[0], "--warning")
             message = dialog.call_args.args[2]
-            for text in ("WARNING", "You do not own this address", "bcrt1qexample", "may be compromised"):
+            for text in ("WARNING", "You do not own this address", "bcrt1qexample", "YOUR WALLET", "your computer and all software running on it, including Bitcoin Core, may be compromised", "Do not send funds to this address"):
                 self.assertIn(text, message)
 
     def test_address_check_requires_an_open_wallet(self):
