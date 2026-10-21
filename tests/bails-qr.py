@@ -10,6 +10,7 @@ import random
 import subprocess
 import sys
 import tempfile
+from threading import Event
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -70,11 +71,27 @@ class StaticQRTests(unittest.TestCase):
             if args[0] == "python3-qr":
                 return subprocess.check_output([sys.executable, "-m", "qrcode.console_scripts", *args[1:]], **kwargs)
             return b""
-        with patch.object(qr, "run", side_effect=command) as run, patch.object(qr, "dialog") as dialog:
+        with patch.object(qr, "run", side_effect=command) as run, patch.object(qr, "dialog") as dialog, patch.object(qr, "Timer") as timer:
             qr.show(data, name, self.directory)
             dialog.assert_not_called()
+            self.assertEqual(run.call_args.args[0], "python3-qr")
+            self.assertEqual(timer.call_args.args[0], 0.5)
+            timer.return_value.start.assert_called_once()
+            timer.call_args.args[1](*timer.call_args.kwargs["args"])
             self.assertEqual(run.call_args.args[0], "xdg-open")
             return Path(run.call_args.args[1])
+
+    def test_viewer_launch_is_delayed_without_blocking_menu(self):
+        opened = Event()
+        def command(*args, **kwargs):
+            if args[0] == "xdg-open":
+                self.assertTrue(Path(args[1]).is_file())
+                opened.set()
+            return b"png"
+        with patch.object(qr, "run", side_effect=command):
+            qr.show(b"psbt\xff", "transaction.psbt", self.directory)
+            self.assertFalse(opened.wait(0.1))
+            self.assertTrue(opened.wait(3))
 
     def test_psbt_formats_and_binary_newline(self):
         for payload in (PSBT, base64.b64encode(PSBT), gzip.compress(PSBT), PSBT + b"\n"):

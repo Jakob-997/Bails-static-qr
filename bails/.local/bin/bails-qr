@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from threading import Timer
 from urllib.parse import unquote, urlsplit
 import zlib
 
@@ -78,7 +79,7 @@ def show(data, name, directory):
         return
     with tempfile.NamedTemporaryFile(suffix=".png", dir=directory, delete=False) as image:
         image.write(run("python3-qr", "--error-correction=L", input=payload))
-    run("xdg-open", image.name)
+    Timer(0.5, run, args=("xdg-open", image.name)).start()
 
 
 def scan(kind):

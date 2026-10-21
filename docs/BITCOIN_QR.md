@@ -117,7 +117,8 @@ Use a new filename. To transfer without a camera:
    wallet with private keys disabled, or load the PSBT from file in Core.
    Address labels in the JSON can be applied with Core's `setlabel` RPC.
 
-The QR opens in Tails' normal image viewer without a separate instruction popup.
+The QR opens in Tails' normal image viewer after a half-second delay, giving the
+main menu time to reopen first. There is no separate instruction popup.
 Close the image after scanning. The viewer controls window size and zoom.
 
 The QR tool keeps working files in `/tmp` with private permissions and removes
