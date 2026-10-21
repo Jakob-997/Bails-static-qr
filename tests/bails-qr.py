@@ -256,7 +256,9 @@ class StaticQRTests(unittest.TestCase):
                         self.assertEqual(dialog.call_args.args[1], "--title=WARNING: Encrypted wallet")
                     if not wallet.get("private_keys_enabled"):
                         self.assertIn("WARNING: You do not own the signing key", message)
-                        self.assertIn("in this wallet", message)
+                        self.assertIn("found in a watch-only wallet", message)
+                        self.assertIn("If you expected this to be your signing wallet and this is not a mistake", message)
+                        self.assertIn("this computer may be compromised", message)
                         self.assertIn("offline signing wallet before sending funds", message)
                         self.assertNotIn("Signing is not confirmed", message)
                         if not encrypted:
