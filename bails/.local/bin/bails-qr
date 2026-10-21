@@ -158,7 +158,7 @@ def scan(kind):
             wallet = rpc("getwalletinfo", wallet=owner)
             single = wallet.get("descriptors") and re.fullmatch(r"(?:(?:pkh|wpkh|tr)\([^(),{}]+\)|sh\(wpkh\([^(),{}]+\)\))#[a-z0-9]{8}", info.get("parent_desc", ""))
             confirmed = bool(single and wallet.get("private_keys_enabled"))
-            message = "This wallet holds the key needed to sign for this address." if confirmed else ("⚠ WARNING: You do not own the signing key for this address in this wallet.\n\nThis address was found in a watch-only wallet, which does not contain its signing key.\n\nCheck again carefully. If you expected this to be your signing wallet and this is not a mistake, this computer may be compromised. Verify this address in your offline signing wallet before sending funds." if not wallet.get("private_keys_enabled") else "Multisig or another unverified spending policy. Signing is not confirmed.")
+            message = "This wallet holds the key needed to sign for this address." if confirmed else ("⚠ WARNING: You do not own the signing key for this address in this wallet.\n\nThis address was found in a watch-only wallet, which does not contain its signing key.\n\nYOU WILL NOT BE ABLE TO SPEND WITH THIS WALLET ALONE.\nDO NOT SEND FUNDS TO THIS ADDRESS UNTIL YOU VERIFY IT IN YOUR OFFLINE SIGNING WALLET.\n\nCheck again carefully. If you expected this to be your signing wallet and this is not a mistake, this computer may be compromised." if not wallet.get("private_keys_enabled") else "Multisig or another unverified spending policy. Signing is not confirmed.")
             if "unlocked_until" in wallet:
                 message = "⚠ ENCRYPTED WALLET\nEnsure you have the encryption passphrase and can unlock this wallet.\n\n" + message
             dialog("--info" if confirmed and "unlocked_until" not in wallet else "--warning", "--title=WARNING: Encrypted wallet" if "unlocked_until" in wallet else ("--title=Address confirmed" if confirmed else ("--title=WARNING: Signing key not owned" if not wallet.get("private_keys_enabled") else "--title=Signing not confirmed")), f"--text={message}\n\n{'✓ ' if confirmed else ''}Address matches wallet:\n{owner or '(default)'}\n\n{address}")
@@ -177,7 +177,7 @@ def main():
             raise ValueError(f"Missing {command}. See docs/BITCOIN_QR.md for requirements.")
     with tempfile.TemporaryDirectory(prefix="bails-qr-", dir="/tmp") as directory:
         while True:
-            action = dialog("--list", "--text=Choose an action.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools").split("  ", 1)[-1]
+            action = dialog("--list", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools").split("  ", 1)[-1]
             if not action:
                 return
             try:

@@ -259,7 +259,9 @@ class StaticQRTests(unittest.TestCase):
                         self.assertIn("found in a watch-only wallet", message)
                         self.assertIn("If you expected this to be your signing wallet and this is not a mistake", message)
                         self.assertIn("this computer may be compromised", message)
-                        self.assertIn("offline signing wallet before sending funds", message)
+                        self.assertIn("YOU WILL NOT BE ABLE TO SPEND WITH THIS WALLET ALONE", message)
+                        self.assertIn("DO NOT SEND FUNDS TO THIS ADDRESS", message)
+                        self.assertIn("VERIFY IT IN YOUR OFFLINE SIGNING WALLET", message)
                         self.assertNotIn("Signing is not confirmed", message)
                         if not encrypted:
                             self.assertEqual(dialog.call_args.args[1], "--title=WARNING: Signing key not owned")
@@ -333,7 +335,7 @@ class StaticQRTests(unittest.TestCase):
                     patch.object(qr, "scan") as scan, self.assertRaises(qr.Cancelled):
                 qr.main()
             self.assertEqual(dialog.call_args_list[0].args,
-                             ("--list", "--text=Choose an action.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools"))
+                             ("--list", "--text=Choose an action.\n\nScanning tips: try maximizing the window showing the QR code.\nQR codes can be scanned sideways or upside down.", "--column=Action", "✓  Verify Receiving Address", "↓  Receive PSBT", "↑  Send PSBT", "⚙  Wallet Tools"))
             scan.assert_called_once_with(action)
 
     def test_receive_psbt_does_not_verify_an_address(self):
